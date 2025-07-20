@@ -1,0 +1,14 @@
+/.git/
+/logs/
+/worktrees/
+/node_modules/
+/dist/
+.DS_Store
+.claude/settings.local.json
+*.sublime-workspace
+.env
+.env.*
+*.pyc
+.DerivedData/
+xcschememanagement.plist
+**/xcuserdata/

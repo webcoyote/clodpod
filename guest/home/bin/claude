@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+
+warn () {
+  echo >&2 -e "\033[33m$*\033[0m"
+}
+
+DIRECTORY="$(git rev-parse --show-toplevel 2>/dev/null)" || DIRECTORY="$HOME"
+cd "$DIRECTORY"
+warn "Running claude in ${DIRECTORY/#$HOME/\~} with --dangerously-skip-permissions"
+
+"$(brew --prefix)/bin/claude" \
+  --dangerously-skip-permissions \
+  "$@"

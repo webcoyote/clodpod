@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# Build the project
+set -euo pipefail
+trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
+
+###############################################################################
+# Functions
+###############################################################################
+info () {
+  echo >&2 -e "\033[36m$*\033[0m"
+}
+warn () {
+  echo >&2 -e "\033[33m$*\033[0m"
+}
+error () {
+  echo >&2 -e "\033[31m$*\033[0m"
+}
+abort () {
+  error "$@"
+  exit 1
+}
+
+get_vm_state () {
+  local TMP_VM_NAME="$1"
+  tart list --source local --format json | jq -r ".[] | select(.Name == \"$TMP_VM_NAME\") | .State" 2>/dev/null || echo ""
+}
+
+wait_for_vm_state () {
+  local TMP_VM_NAME="$1"
+  local desired_state="$2"
+  local timeout=20
+  local elapsed=0
+
+  while [[ $elapsed -lt $timeout ]]; do
+    local state=$(get_vm_state "$TMP_VM_NAME")
+    if [[ "$state" == "$desired_state" ]]; then
+      info "✅ VM '$TMP_VM_NAME' is $desired_state"
+      return 0
+    fi
+    info "⏳ Waiting for VM to be $desired_state... ($elapsed/$timeout seconds)"
+    sleep 1
+    ((elapsed++)) || true
+  done
+
+  abort "❌ VM '$TMP_VM_NAME' failed to be $desired_state within $timeout seconds"
+}
+
+wait_for_vm_running () {
+    wait_for_vm_state "$1" "running"
+}
+
+wait_for_vm_stopped () {
+    wait_for_vm_state "$1" "stopped"
+}
+
+# heredoc MESSAGE << EOF
+#    your favorite text here
+# EOF
+heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
+
+
+###############################################################################
+# Install required tools
+###############################################################################
+info "🔨 Installing tools..."
+TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
+TOOLS+=("jq")                       # JSON processing tool
+TOOLS+=("rush")                     # GNU Rush is a Restricted User Shell
+for tool in "${TOOLS[@]}"; do
+    command -v "$(basename "$tool")" &>/dev/null || brew install "$tool"
+done
+
+
+###############################################################################
+# Download OS image
+###############################################################################
+IMAGE_NAME="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
+TMP_VM_NAME="clodpod-tmp-xcode"
+DST_VM_NAME="clodpod-xcode"
+
+if ! tart list --quiet | grep "^$IMAGE_NAME$" >/dev/null ; then
+    info "🔨 Downloding image..."
+    tart pull "$IMAGE_NAME" >/dev/null;
+fi
+
+
+###############################################################################
+# Check for rebuild
+###############################################################################
+REBUILD="${REBUILD:-false}" || true
+
+if [[ "$REBUILD" == "false" ]]; then
+    if ! tart list --quiet | grep "^$DST_VM_NAME$" >/dev/null ; then
+        REBUILD=true
+    fi
+fi
+
+# If we're going to rebuild then stop the dst VM
+if [[ "$REBUILD" != "false" ]]; then
+    if tart list --quiet | grep "^$DST_VM_NAME$" >/dev/null ; then
+        if [[ "$(get_vm_state "$DST_VM_NAME")" != "stopped" ]]; then
+            info "🛑 Stopping $DST_VM_NAME..."
+            tart stop "$DST_VM_NAME"
+            wait_for_vm_stopped "$DST_VM_NAME"
+        fi
+        tart delete "$DST_VM_NAME"  &>/dev/null || true
+    fi
+fi
+
+
+###############################################################################
+# Create passwordless SSH key with permission to remotely login to guest
+###############################################################################
+SSH_DIR="$HOME/.ssh/"
+SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
+SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
+if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
+    mkdir -p "$SSH_DIR"
+    ssh-keygen -t ed25519 \
+        -f "$SSH_KEYFILE_PRIV" \
+        -N "" \
+        -C "clodpod-${USER}@${HOSTNAME}"
+fi
+
+
+###############################################################################
+# Configure VM settings
+###############################################################################
+if [[ "$REBUILD" != "false" ]]; then
+    info "🔨 Configuring credentials..."
+    rm -rf "$WORKSPACE/dist" >/dev/null
+    cp -rf "$WORKSPACE/guest" "$WORKSPACE/dist"
+
+    # Copy claude configuration file, excluding things we don't need
+    if [[ ! -f "$HOME/.claude.json" ]]; then
+        echo >&2 "ERROR: missing '$HOME/.claude.json'"
+        exit 1
+    fi
+    jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers)' \
+        "$HOME/.claude.json" \
+        > "$WORKSPACE/dist/home/.claude.json"
+
+    # Get git config from host
+    GIT_USER_NAME=$(git config --global --get user.name 2>/dev/null || echo "")
+    GIT_USER_EMAIL=$(git config --global --get user.email 2>/dev/null || echo "")
+    git config set -f "$WORKSPACE/dist/home/.gitconfig" user.name "$GIT_USER_NAME"
+    git config set -f "$WORKSPACE/dist/home/.gitconfig" user.email "$GIT_USER_EMAIL"
+
+    # Add SSH public key to host's authorized_keys
+    GUEST_AUTHORIZED_KEYS="$WORKSPACE/dist/home/.ssh/authorized_keys"
+    mkdir -p "$(dirname "$GUEST_AUTHORIZED_KEYS")"
+    cp "$SSH_KEYFILE_PUB" "$GUEST_AUTHORIZED_KEYS"
+    chmod 600 "$GUEST_AUTHORIZED_KEYS"
+fi
+
+###############################################################################
+# Select directory to mirror
+###############################################################################
+if [[ -z "${PROJECT_DIR:-}" ]]; then
+    PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
+fi
+
+###############################################################################
+# Build VM
+###############################################################################
+if [[ "$REBUILD" != "false" ]]; then
+    info "🔨 Cloning image..."
+    tart clone "$IMAGE_NAME" "$TMP_VM_NAME"
+
+    # In order to share the dist directory with the VM
+    # it is necessary to stop (not suspend) the VM
+    if [[ "$(get_vm_state "$TMP_VM_NAME")" != "stopped" ]]; then
+        info "🛑 Stopping $TMP_VM_NAME"
+        tart stop "$TMP_VM_NAME"
+        wait_for_vm_stopped "$TMP_VM_NAME"
+    fi
+
+    info "🚀 Starting $TMP_VM_NAME"
+    tart run --dir "install:$WORKSPACE/dist" --dir "project:$PROJECT_DIR" "$TMP_VM_NAME" </dev/null &>/dev/null & disown
+    wait_for_vm_running "$TMP_VM_NAME"
+
+    info "🔨 Running install script..."
+    tart exec -it "$TMP_VM_NAME" /usr/bin/env FAST="${FAST:-0}" bash "/Volumes/My Shared Files/install/install.sh"
+    rm -rf "$WORKSPACE/dist" >/dev/null
+
+    info "🔨 Renaming VM to $DST_VM_NAME"
+    tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+fi
+
+
+###############################################################################
+# Run the application
+###############################################################################
+heredoc LOCAL_NETWORK_ERROR << EOF
+\n
+ERROR: unable to connect to $DST_VM_NAME.
+
+This typically occurs when your terminal program ($TERM_PROGRAM)
+has not been granted "Local Network" access rights.
+
+- Open "System Settings.app"
+- Navigate to "Privacy & Security"
+- Select "Local Network"
+- Grant access to "$TERM_PROGRAM"
+\n
+EOF
+
+if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
+    info "🚀 Starting $DST_VM_NAME"
+    tart run --dir "project:$PROJECT_DIR" "$DST_VM_NAME" </dev/null &>/dev/null & disown
+    wait_for_vm_running "$DST_VM_NAME"
+fi
+
+info "🚀 Getting $DST_VM_NAME IP address"
+IPADDR="$(tart ip --wait 20 "$DST_VM_NAME")"
+info "🚀 Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
+if ! ssh -i "$SSH_KEYFILE_PRIV" "clodpod@$IPADDR" ; then
+    error "$LOCAL_NETWORK_ERROR"
+    read -n 1 -s -r -p "Press any key to open System Settings -> Privacy & Security"
+    open "/System/Library/PreferencePanes/Security.prefPane"
+fi
