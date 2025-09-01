@@ -1,6 +1,3 @@
-
-tart clone ghcr.io/cirruslabs/macos-sequoia-xcode:latest xcode
-tart run --dir "build:~/personal/cloddy" xcode --no-graphics
-tart exec -it xcode zsh
+ClodPod is a script to build a MacOS virtual machine image that can be used to run Claude with "--dangerously-skip-permissions" on the guest system, providing greater safety on the host system.
 
 
