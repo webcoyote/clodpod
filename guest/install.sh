@@ -141,12 +141,16 @@ sudo dscl . -create /Users/clodpod PrimaryGroupID "$GROUP_ID"
 sudo dscl . -create /Users/clodpod RealName "clodpod User"
 sudo dscl . -create /Users/clodpod NFSHomeDirectory "$CLODPOD_HOME"
 sudo dscl . -create /Users/clodpod UserShell "/bin/zsh"
-sudo dscl . -create /Users/clodpod IsHidden 1  # Hide from login window
 
-# Set a random password for the user (required for SSH on macOS)
-# We'll use key-based auth so the password won't actually be used
+# Set a random password for the user (password required for SSH on macOS)
+# We'll use key-based auth so the password won't actually be used.
 RANDOM_PASS=$(openssl rand -base64 32)
 sudo dscl . -passwd /Users/clodpod "$RANDOM_PASS"
+sudo dscl . -create /Users/clodpod IsHidden 1  # Hide from login window
+
+# Let's allow the user to login as this user if they want
+#sudo dscl . -create /Users/clodpod IsHidden 0
+#sudo dscl . -passwd /Users/clodpod "admin"
 
 # Now add only to the SSH access group (required for SSH login)
 # do not use sudo dscl; it creates duplicate entries when run more than once
