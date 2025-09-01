@@ -12,3 +12,4 @@
 .DerivedData/
 xcschememanagement.plist
 **/xcuserdata/
+/.clodpod.sqlite
