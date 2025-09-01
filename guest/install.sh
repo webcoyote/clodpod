@@ -85,11 +85,11 @@ npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 # Create clodpod user and group
 ###############################################################################
 CLODPOD_HOME="/Users/clodpod"
-info "Setting up clodpod user and group..."
+info "🔨Setting up clodpod user and group..."
 
 # Check if group exists, create if needed
 if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
-    info "Creating clodpod group..."
+    info "🔨Creating clodpod group..."
 
     # Find next available UID/GID starting from 501
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -99,12 +99,12 @@ if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Groups/clodpod
     GROUP_ID=$NEXT_UID
 else
-    info "Group clodpod already exists"
+    info "🔨Group clodpod already exists"
     GROUP_ID=$(dscl . -read /Groups/clodpod PrimaryGroupID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure group has all required properties (idempotent)
-info "Configuring clodpod group properties..."
+info "🔨Configuring clodpod group properties..."
 if [[ -z "${GROUP_ID:-}" ]]; then
     # Group exists but has no PrimaryGroupID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -115,7 +115,7 @@ sudo dscl . -create /Groups/clodpod RealName "clodpod Group"
 
 # Check if user exists, create if needed
 if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
-    info "Creating clodpod user..."
+    info "🔨Creating clodpod user..."
 
     # Find next available UID
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -125,12 +125,12 @@ if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Users/clodpod
     USER_ID=$NEXT_UID
 else
-    info "User clodpod already exists"
+    info "🔨User clodpod already exists"
     USER_ID=$(dscl . -read /Users/clodpod UniqueID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure user has all required properties (idempotent)
-info "Configuring clodpod user properties..."
+info "🔨Configuring clodpod user properties..."
 if [[ -z "${USER_ID:-}" ]]; then
     # User exists but has no UniqueID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -173,3 +173,9 @@ fi
 if [[ -f "$CLODPOD_HOME/.ssh/id_ed25519.pub" ]]; then
     sudo chmod 644 "$CLODPOD_HOME/.ssh/id_ed25519.pub"
 fi
+
+
+###############################################################################
+# Allow clodpod user to update homebrew
+###############################################################################
+sudo chown -R "clodpod:clodpod" "$(brew --prefix)"

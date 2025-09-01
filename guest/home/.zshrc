@@ -19,6 +19,7 @@ export EDITOR=vi
 # utilities
 command -v bat &>/dev/null && alias cat='bat --paging=never'
 command -v eza &>/dev/null && alias ls=eza
+command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
 # ls
 alias l='ls -l --git'
@@ -33,3 +34,4 @@ if [[ -d "$PROJECT_DIR" ]]; then
     cd "$PROJECT_DIR"
     "$HOME/bin/claude"
 fi
+
