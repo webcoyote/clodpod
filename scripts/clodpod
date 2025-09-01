@@ -138,7 +138,11 @@ if [[ "$REBUILD" != "false" ]]; then
         echo >&2 "ERROR: missing '$HOME/.claude.json'"
         exit 1
     fi
-    jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers)' \
+
+    warn "Disabling claude auto-updates"
+    warn "- https://github.com/anthropics/claude-code/issues/5118"
+    warn "- https://github.com/anthropics/claude-code/issues/5151"
+    jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers) | .autoUpdates = false' \
         "$HOME/.claude.json" \
         > "$WORKSPACE/dist/home/.claude.json"
 
