@@ -7,6 +7,35 @@ WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 
 
 ###############################################################################
+# Definitions
+###############################################################################
+MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
+BASE_VM_NAME="clodpod-base-xcode"
+DST_VM_NAME="clodpod-xcode"
+
+
+###############################################################################
+# Preconditions
+###############################################################################
+if [[ $OSTYPE != 'darwin'* ]]; then
+    echo >&2 "ERROR: this script is for Mac OSX"
+    exit 1
+fi
+if [[ ! -f "$HOME/.claude.json" ]]; then
+    echo >&2 "ERROR: missing '$HOME/.claude.json'"
+    exit 1
+fi
+
+
+###############################################################################
+# Select project directory to mirror
+###############################################################################
+if [[ -z "${PROJECT_DIR:-}" ]]; then
+    PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
+fi
+
+
+###############################################################################
 # Functions
 ###############################################################################
 info () {
@@ -23,44 +52,71 @@ abort () {
   exit 1
 }
 
-get_vm_state () {
-  local TMP_VM_NAME="$1"
-  tart list --source local --format json | jq -r ".[] | select(.Name == \"$TMP_VM_NAME\") | .State" 2>/dev/null || echo ""
-}
-
-wait_for_vm_state () {
-  local TMP_VM_NAME="$1"
-  local desired_state="$2"
-  local timeout=20
-  local elapsed=0
-
-  while [[ $elapsed -lt $timeout ]]; do
-    local state=$(get_vm_state "$TMP_VM_NAME")
-    if [[ "$state" == "$desired_state" ]]; then
-      info "✅ VM '$TMP_VM_NAME' is $desired_state"
-      return 0
-    fi
-    info "⏳ Waiting for VM to be $desired_state... ($elapsed/$timeout seconds)"
-    sleep 1
-    ((elapsed++)) || true
-  done
-
-  abort "❌ VM '$TMP_VM_NAME' failed to be $desired_state within $timeout seconds"
-}
-
-wait_for_vm_running () {
-    wait_for_vm_state "$1" "running"
-}
-
-wait_for_vm_stopped () {
-    wait_for_vm_state "$1" "stopped"
-}
-
 # heredoc MESSAGE << EOF
 #    your favorite text here
 # EOF
 heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
 
+get_vm_state () {
+    local vm_name="$1"
+    local vm_source="${2:-local}"
+    tart list --source "$vm_source" --format json \
+        | jq -r ".[] | select(.Name == \"$vm_name\") | .State" 2>/dev/null \
+        || echo ""
+}
+
+get_vm_exists () {
+    local vm_name="$1"
+    local vm_source="${2:-local}"
+    [[ "$(get_vm_state "$vm_name" "$vm_source")" != "" ]]
+}
+
+wait_vm_state () {
+    local vm_name="$1"
+    local desired_state="$2"
+    local timeout=20
+    local elapsed=0
+
+    while [[ $elapsed -lt $timeout ]]; do
+        local state=$(get_vm_state "$vm_name")
+        if [[ "$state" == "$desired_state" ]]; then
+            info "✅ VM '$vm_name' is $desired_state"
+            return 0
+        fi
+        info "⏳ Waiting for VM to be $desired_state... ($elapsed/$timeout seconds)"
+        sleep 1
+        ((elapsed++)) || true
+    done
+    abort "❌ VM '$vm_name' failed to be $desired_state within $timeout seconds"
+}
+
+wait_vm_running () {
+    wait_vm_state "$1" "running"
+}
+
+stop_vm () {
+    local vm_name="$1"
+    if [[ "$(get_vm_state "$vm_name")" != "stopped" ]]; then
+        info "🛑 Stopping $vm_name..."
+        tart stop "$vm_name"
+        wait_vm_state "$vm_name" "stopped"
+    fi
+}
+
+delete_vm () {
+    local vm_name="$1"
+    if tart list --quiet | grep "^$vm_name$" >/dev/null ; then
+        stop_vm "$vm_name"
+        info "🛑 Deleting $vm_name..."
+        tart delete "$vm_name" &>/dev/null || true
+    fi
+}
+
+cleanup_tmp_vm () {
+    if [[ -n "${TMP_VM_NAME:-}" ]]; then
+        delete_vm "$TMP_VM_NAME"
+    fi
+}
 
 ###############################################################################
 # Install required tools
@@ -71,45 +127,11 @@ TOOLS+=("jq")                       # JSON processing tool
 TOOLS+=("netcat")                   # networking tool
 TOOLS+=("rush")                     # GNU Rush is a Restricted User Shell
 for tool in "${TOOLS[@]}"; do
-    command -v "$(basename "$tool")" &>/dev/null || brew install "$tool"
+    if ! command -v "$(basename "$tool")" &>/dev/null ; then
+        info "🔨 Installing $tool"
+        brew install --quiet "$tool"
+    fi
 done
-
-
-###############################################################################
-# Download OS image
-###############################################################################
-IMAGE_NAME="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
-TMP_VM_NAME="clodpod-tmp-xcode"
-DST_VM_NAME="clodpod-xcode"
-
-if ! tart list --quiet | grep "^$IMAGE_NAME$" >/dev/null ; then
-    info "🔨 Downloding image..."
-    tart pull "$IMAGE_NAME" >/dev/null;
-fi
-
-
-###############################################################################
-# Check for rebuild
-###############################################################################
-REBUILD="${REBUILD:-false}" || true
-
-if [[ "$REBUILD" == "false" ]]; then
-    if ! tart list --quiet | grep "^$DST_VM_NAME$" >/dev/null ; then
-        REBUILD=true
-    fi
-fi
-
-# If we're going to rebuild then stop the dst VM
-if [[ "$REBUILD" != "false" ]]; then
-    if tart list --quiet | grep "^$DST_VM_NAME$" >/dev/null ; then
-        if [[ "$(get_vm_state "$DST_VM_NAME")" != "stopped" ]]; then
-            info "🛑 Stopping $DST_VM_NAME..."
-            tart stop "$DST_VM_NAME"
-            wait_for_vm_stopped "$DST_VM_NAME"
-        fi
-        tart delete "$DST_VM_NAME"  &>/dev/null || true
-    fi
-fi
 
 
 ###############################################################################
@@ -123,78 +145,124 @@ if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
     ssh-keygen -t ed25519 \
         -f "$SSH_KEYFILE_PRIV" \
         -N "" \
+        -q \
         -C "clodpod-${USER}@${HOSTNAME}"
+    REBUILD_DST=true
+fi
+
+
+###############################################################################
+# Download MACOS image
+###############################################################################
+if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
+    # Defer downloading the image until after asking to stop
+    # running images to avoid asking questions after a long delay
+    DOWNLOAD_IMAGE=true
+
+    # Changing the MACOS image requires rebuild
+    REBUILD_BASE=true
+    REBUILD_DST=true
+elif ! get_vm_exists "$BASE_VM_NAME" ; then
+    REBUILD_BASE=true
+    REBUILD_DST=true
+elif ! get_vm_exists "$DST_VM_NAME" ; then
+    REBUILD_DST=true
+fi
+
+if [[ "${REBUILD_DST:-}" != "" ]]; then
+    if [[ "$(get_vm_state "$DST_VM_NAME")" == "running" ]]; then
+        read -p "$DST_VM_NAME is running; delete it? (y/N)" -n 1 -r response
+        [[ "$response" =~ ^[Yy]$ ]] || exit 0
+    fi
+    delete_vm "$DST_VM_NAME"
+fi
+
+if [[ "${DOWNLOAD_IMAGE:-}" != "" ]]; then
+    info "🔨 Downloding image..."
+    tart pull "$MACOS_IMAGE" >/dev/null
 fi
 
 
 ###############################################################################
 # Configure VM settings
 ###############################################################################
-if [[ "$REBUILD" != "false" ]]; then
+if [[ "${REBUILD_DST:-}" != "" ]]; then
     info "🔨 Configuring credentials..."
-    rm -rf "$WORKSPACE/dist" >/dev/null
-    cp -rf "$WORKSPACE/guest" "$WORKSPACE/dist"
 
     # Copy claude configuration file, excluding things we don't need
-    if [[ ! -f "$HOME/.claude.json" ]]; then
-        echo >&2 "ERROR: missing '$HOME/.claude.json'"
-        exit 1
-    fi
-
     warn "Disabling claude auto-updates"
     warn "- https://github.com/anthropics/claude-code/issues/5118"
     warn "- https://github.com/anthropics/claude-code/issues/5151"
     jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers) | .autoUpdates = false' \
-        "$HOME/.claude.json" \
-        > "$WORKSPACE/dist/home/.claude.json"
+        "$HOME/.claude.json" > "$WORKSPACE/guest/home/.claude.json"
 
     # Get git config from host
     GIT_USER_NAME=$(git config --global --get user.name 2>/dev/null || echo "")
     GIT_USER_EMAIL=$(git config --global --get user.email 2>/dev/null || echo "")
-    git config set -f "$WORKSPACE/dist/home/.gitconfig" user.name "$GIT_USER_NAME"
-    git config set -f "$WORKSPACE/dist/home/.gitconfig" user.email "$GIT_USER_EMAIL"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$GIT_USER_NAME"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$GIT_USER_EMAIL"
 
     # Add SSH public key to host's authorized_keys
-    GUEST_AUTHORIZED_KEYS="$WORKSPACE/dist/home/.ssh/authorized_keys"
+    GUEST_AUTHORIZED_KEYS="$WORKSPACE/guest/home/.ssh/authorized_keys"
     mkdir -p "$(dirname "$GUEST_AUTHORIZED_KEYS")"
     cp "$SSH_KEYFILE_PUB" "$GUEST_AUTHORIZED_KEYS"
     chmod 600 "$GUEST_AUTHORIZED_KEYS"
 fi
 
-###############################################################################
-# Select directory to mirror
-###############################################################################
-if [[ -z "${PROJECT_DIR:-}" ]]; then
-    PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
-fi
 
 ###############################################################################
-# Build VM
+# Create Base VM
 ###############################################################################
-if [[ "$REBUILD" != "false" ]]; then
-    info "🔨 Cloning image..."
-    tart clone "$IMAGE_NAME" "$TMP_VM_NAME"
+# It's possible this script will fail or be cancelled halfway
+# through so build to a temporary image and rename when complete
+TMP_VM_NAME="TMP-$(openssl rand -hex 8)"
+trap cleanup_tmp_vm EXIT
 
-    # In order to share the dist directory with the VM
-    # it is necessary to stop (not suspend) the VM
-    if [[ "$(get_vm_state "$TMP_VM_NAME")" != "stopped" ]]; then
-        info "🛑 Stopping $TMP_VM_NAME"
-        tart stop "$TMP_VM_NAME"
-        wait_for_vm_stopped "$TMP_VM_NAME"
-    fi
+if [[ "${REBUILD_BASE:-}" != "" ]]; then
+    delete_vm "$BASE_VM_NAME"
+
+    info "🔨 Cloning image to $TMP_VM_NAME..."
+    tart clone "$MACOS_IMAGE" "$TMP_VM_NAME"
 
     info "🚀 Starting $TMP_VM_NAME"
-    tart run --dir "install:$WORKSPACE/dist" --dir "project:$PROJECT_DIR" "$TMP_VM_NAME" </dev/null &>/dev/null & disown
-    wait_for_vm_running "$TMP_VM_NAME"
+    tart run \
+        --dir "install:$WORKSPACE/guest" \
+        --dir "project:$PROJECT_DIR" \
+        "$TMP_VM_NAME" </dev/null &>/dev/null & disown
+    wait_vm_running "$TMP_VM_NAME"
 
     info "🔨 Running install script..."
-    tart exec -it "$TMP_VM_NAME" /usr/bin/env FAST="${FAST:-0}" bash "/Volumes/My Shared Files/install/install.sh"
-    rm -rf "$WORKSPACE/dist" >/dev/null
+    tart exec -it "$TMP_VM_NAME" /usr/bin/env bash "/Volumes/My Shared Files/install/install.sh"
 
-    info "🔨 Renaming VM to $DST_VM_NAME"
-    tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+    info "🔨 Renaming $TMP_VM_NAME to $BASE_VM_NAME"
+    tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
 fi
 
+
+###############################################################################
+# Create Dst VM
+###############################################################################
+if [[ "${REBUILD_DST:-}" != "" ]]; then
+    # If the base image is already running then do some jiggery-pokery
+    # to rename it so we can avoid stopping the VM and starting another
+    if [[ "$(get_vm_state "$BASE_VM_NAME")" == "running" ]]; then
+        tart rename "$BASE_VM_NAME" "$TMP_VM_NAME"
+        tart clone "$TMP_VM_NAME" "$BASE_VM_NAME"
+    else
+        tart clone "$BASE_VM_NAME" "$TMP_VM_NAME"
+        tart run \
+            --dir "install:$WORKSPACE/guest" \
+            --dir "project:$PROJECT_DIR" \
+            "$TMP_VM_NAME" </dev/null &>/dev/null & disown
+        wait_vm_running "$TMP_VM_NAME"
+    fi
+
+    info "🔨 Running setup script..."
+    tart exec -it "$TMP_VM_NAME" /usr/bin/env bash "/Volumes/My Shared Files/install/configure.sh"
+
+    info "🔨 Renaming $TMP_VM_NAME to $DST_VM_NAME"
+    tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+fi
 
 ###############################################################################
 # Run the application
@@ -216,7 +284,7 @@ EOF
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
     info "🚀 Starting $DST_VM_NAME"
     tart run --dir "project:$PROJECT_DIR" "$DST_VM_NAME" </dev/null &>/dev/null & disown
-    wait_for_vm_running "$DST_VM_NAME"
+    wait_vm_running "$DST_VM_NAME"
 fi
 
 info "🚀 Checking $DST_VM_NAME IP connectivity"
@@ -228,4 +296,9 @@ if ! nc -z "$IPADDR" 22 ; then
 fi
 
 info "🚀 Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
-exec ssh -i "$SSH_KEYFILE_PRIV" "clodpod@$IPADDR"
+exec ssh \
+    -q \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -i "$SSH_KEYFILE_PRIV" \
+    "clodpod@$IPADDR"
