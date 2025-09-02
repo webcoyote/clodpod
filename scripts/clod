@@ -16,6 +16,7 @@ DB_FILE="$WORKSPACE/.clodpod.sqlite"
 PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
 PROJECT="$(basename "$PROJECT_DIR")"
 
+
 ###############################################################################
 # Functions
 ###############################################################################
@@ -90,6 +91,19 @@ wait_vm_running () {
     wait_vm_state "$1" "running"
 }
 
+run_vm () {
+    local vm_name="$1"
+    info "Starting $vm_name"
+    tart run \
+        "${TART_RUN_ARGS[@]}" \
+        "$vm_name" </dev/null &>/dev/null & disown
+    wait_vm_running "$vm_name"
+    # Mark all projects as active after VM starts successfully
+    sqlite3 "$DB_FILE" <<EOF
+UPDATE projects SET active = 1;
+EOF
+}
+
 stop_vm () {
     local vm_name="$1"
     if [[ "$(get_vm_state "$vm_name")" != "stopped" ]]; then
@@ -114,16 +128,105 @@ cleanup_tmp_vm () {
     fi
 }
 
-
-# Initialize database and create table if it doesn't exist
 init_db() {
     sqlite3 "$DB_FILE" <<EOF
 CREATE TABLE IF NOT EXISTS projects (
     path TEXT UNIQUE NOT NULL,
     name TEXT UNIQUE NOT NULL,
-    date_added TEXT DEFAULT (datetime('now'))
+    date_added TEXT DEFAULT (datetime('now')),
+    active INTEGER DEFAULT 0
 );
 EOF
+}
+
+check_active() {
+    # Returns 0 (success) if all projects are active, 1 otherwise
+    local inactive_count
+    inactive_count=$(sqlite3 "$DB_FILE" <<EOF
+SELECT COUNT(*) FROM projects WHERE active = 0;
+EOF
+)
+    [[ "$inactive_count" -eq 0 ]]
+}
+
+add_project_internal () {
+    local path="${1:-}"
+    local name="${2:-}"
+
+    if [[ -z "$path" ]]; then
+        echo "Error: Path is required" >&2
+        return 1
+    fi
+
+    # Use basename of path if name not provided
+    path="$(realpath "$path")"
+    if [[ -z "$name" ]]; then
+        name="$(basename "$path")"
+    fi
+
+    sqlite3 "$DB_FILE" <<EOF
+INSERT OR IGNORE INTO projects (path, name, date_added) VALUES ('$path', '$name', datetime('now'));
+EOF
+}
+
+add_project() {
+    local path="${1:-}"
+    local name="${2:-}"
+
+    if add_project_internal "$path" "$name"; then
+        echo "Project added: $name ($path)"
+    fi
+}
+
+remove_project() {
+    local identifier="${1:-}"
+
+    if [[ -z "$identifier" ]]; then
+        echo "Error: Project name or path required" >&2
+        return 1
+    fi
+    path="$(realpath "$identifier")"
+
+    # Try to remove by name first, then by path
+    local rows_affected
+    rows_affected=$(sqlite3 "$DB_FILE" <<EOF
+DELETE FROM projects WHERE name = '$identifier' OR path = '$identifier' OR path = '$path';
+SELECT changes();
+EOF
+)
+
+    if [[ ${rows_affected:-0} -gt 0 ]]; then
+        echo "Project removed"
+    else
+        echo "Error: Project not found" >&2
+        return 1
+    fi
+}
+
+list_projects() {
+    sqlite3 -column -header "$DB_FILE" <<EOF || return 1
+SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active, date_added FROM projects ORDER BY date_added DESC;
+EOF
+}
+
+# Get all projects as bash array with --dir format
+# Usage: get_projects_array ARRAY_NAME
+# Populates the named array with entries like: "--dir" "name:path"
+get_projects_array() {
+    local -n arr="$1"
+    arr=()
+
+    local result
+    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
+SELECT name, path FROM projects ORDER BY date_added DESC;
+EOF
+)
+
+    if [[ -n "$result" ]]; then
+        while IFS='|' read -r name path; do
+            arr+=("--dir" "${name}:${path}")
+        done <<< "$result"
+    fi
 }
 
 
@@ -155,6 +258,10 @@ case "${1:-}" in
         ;;
     shell)
         ;;
+    stop)
+        stop_vm "$DST_VM_NAME"
+        exit 0
+        ;;
     add)
         add_project "${2:-}" "${3:-}"
         exit 0
@@ -167,39 +274,26 @@ case "${1:-}" in
         list_projects
         exit 0
         ;;
-    find-by-path)
-        find_by_path "${2:-}"
-        exit 0
-        ;;
-    find-by-name)
-        find_by_name "${2:-}"
-        exit 0
-        ;;
-    get-array)
-        # Example usage: demonstrates the array function
-        local projects_array
-        get_projects_array projects_array
-        printf '%s\n' "${projects_array[@]}"
-        exit 0
-        ;;
     *)
         appname=$(basename "$0")
         echo "Usage: $appname command [args...]"
         echo ""
         echo "Commands:"
-        echo "  run                  Build/run VM with claude"
-        echo "  shell                Build/run VM with shell"
+        echo "  run                  Run claude in a virtual machine"
+        echo "  shell                Run shell in a virtual machine"
+        echo "  stop                 Stop running virtual machine"
         echo "  list                 List all projects"
         echo "  add <path> [name]    Add a new project (name defaults to basename of path)"
         echo "  remove <identifier>  Remove project by name or path"
-        echo "  find-by-path <path>  Find project by path"
-        echo "  find-by-name <name>  Find project by name"
-        echo "  get-array            Output projects in --dir format (for testing)"
         exit 1
         ;;
 esac
 
+add_project_internal "$PROJECT_DIR" "$PROJECT"
+
 TART_RUN_ARGS=()
+get_projects_array TART_RUN_ARGS
+TART_RUN_ARGS+=("--dir" "__install:$WORKSPACE/guest")
 [[ "${NO_GRAPHICS:-}" == "" ]] || TART_RUN_ARGS+=("--no-graphics")
 
 
@@ -296,13 +390,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     info "Cloning image to $TMP_VM_NAME..."
     tart clone "$MACOS_IMAGE" "$TMP_VM_NAME"
 
-    info "Starting $TMP_VM_NAME"
-    tart run \
-        "${TART_RUN_ARGS[@]}" \
-        --dir "__install:$WORKSPACE/guest" \
-        --dir "$PROJECT:$PROJECT_DIR" \
-        "$TMP_VM_NAME" </dev/null &>/dev/null & disown
-    wait_vm_running "$TMP_VM_NAME"
+    run_vm "$TMP_VM_NAME"
 
     info "Running install script..."
     tart exec -it "$TMP_VM_NAME" \
@@ -325,12 +413,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         tart clone "$TMP_VM_NAME" "$BASE_VM_NAME"
     else
         tart clone "$BASE_VM_NAME" "$TMP_VM_NAME"
-    tart run \
-        "${TART_RUN_ARGS[@]}" \
-        --dir "__install:$WORKSPACE/guest" \
-        --dir "$PROJECT:$PROJECT_DIR" \
-        "$TMP_VM_NAME" </dev/null &>/dev/null & disown
-        wait_vm_running "$TMP_VM_NAME"
+        run_vm "$TMP_VM_NAME"
     fi
 
     info "Running setup script..."
@@ -360,13 +443,14 @@ has not been granted "Local Network" access rights.
 EOF
 
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
-    info "Starting $DST_VM_NAME"
-    tart run \
-        "${TART_RUN_ARGS[@]}" \
-        --dir "__install:$WORKSPACE/guest" \
-        --dir "$PROJECT:$PROJECT_DIR" \
-        "$DST_VM_NAME" </dev/null &>/dev/null & disown
-    wait_vm_running "$DST_VM_NAME"
+    run_vm "$DST_VM_NAME"
+elif ! check_active ; then
+    warn "New project added; VM restart needed"
+    read -p "$DST_VM_NAME is running; restart it? (y/N)" -n 1 -r response
+    echo
+    [[ "$response" =~ ^[Yy]$ ]] || exit 0
+    stop_vm "$DST_VM_NAME"
+    run_vm "$DST_VM_NAME"
 fi
 
 info "Checking $DST_VM_NAME IP connectivity"
