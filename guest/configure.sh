@@ -40,13 +40,6 @@ DIST_DIR="/Volumes/My Shared Files/__install"
 sudo mkdir -p "/Users/clodpod"
 sudo cp -rf "$DIST_DIR/home/." "/Users/clodpod/"
 
-# Create symbolic links for all the projects
-sudo mkdir -p "/Users/clodpod/projects"
-fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | while IFS= read -r -d '' dir; do
-    [[ "$(basename "$dir")" == "__install" ]] && continue
-    sudo ln -sf "$dir" "/Users/clodpod/projects/$(basename "$dir")"
-done
-
 # Make clodpod the owner of the files
 sudo chown -R "clodpod:clodpod" "/Users/clodpod"
 

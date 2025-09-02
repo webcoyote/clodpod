@@ -28,6 +28,14 @@ alias ll='ls -al --git'
 alias lli='ls -al --git --git-ignore'
 alias tree='ls -lT --git'
 
+# Create symbolic links for all the projects
+mkdir -p "/Users/clodpod/projects"
+fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | while IFS= read -r -d '' dir; do
+    if [[ ! "$(basename "$dir")" =~ ^__install$ ]]; then
+        ln -sf "$dir" "/Users/clodpod/projects/$(basename "$dir")"
+    fi
+done
+
 PROJECT="${PROJECT:-project}"
 PROJECT_DIR="$HOME/projects/$PROJECT"
 if [[ -d "$PROJECT_DIR" ]]; then
