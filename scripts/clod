@@ -172,6 +172,7 @@ fi
 if [[ "${REBUILD_DST:-}" != "" ]]; then
     if [[ "$(get_vm_state "$DST_VM_NAME")" == "running" ]]; then
         read -p "$DST_VM_NAME is running; delete it? (y/N)" -n 1 -r response
+        echo
         [[ "$response" =~ ^[Yy]$ ]] || exit 0
     fi
     delete_vm "$DST_VM_NAME"
@@ -226,13 +227,15 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
 
     info "🚀 Starting $TMP_VM_NAME"
     tart run \
-        --dir "install:$WORKSPACE/guest" \
+        --dir "__install:$WORKSPACE/guest" \
         --dir "project:$PROJECT_DIR" \
         "$TMP_VM_NAME" </dev/null &>/dev/null & disown
     wait_vm_running "$TMP_VM_NAME"
 
     info "🔨 Running install script..."
-    tart exec -it "$TMP_VM_NAME" /usr/bin/env bash "/Volumes/My Shared Files/install/install.sh"
+    tart exec -it "$TMP_VM_NAME" \
+        "/usr/bin/env" bash \
+        "/Volumes/My Shared Files/__install/install.sh"
 
     info "🔨 Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
@@ -251,14 +254,16 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     else
         tart clone "$BASE_VM_NAME" "$TMP_VM_NAME"
         tart run \
-            --dir "install:$WORKSPACE/guest" \
+            --dir "__install:$WORKSPACE/guest" \
             --dir "project:$PROJECT_DIR" \
             "$TMP_VM_NAME" </dev/null &>/dev/null & disown
         wait_vm_running "$TMP_VM_NAME"
     fi
 
     info "🔨 Running setup script..."
-    tart exec -it "$TMP_VM_NAME" /usr/bin/env bash "/Volumes/My Shared Files/install/configure.sh"
+    tart exec -it "$TMP_VM_NAME" \
+        "/usr/bin/env" bash \
+        "/Volumes/My Shared Files/__install/configure.sh"
 
     info "🔨 Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"

@@ -28,7 +28,7 @@ alias ll='ls -al --git'
 alias lli='ls -al --git --git-ignore'
 alias tree='ls -lT --git'
 
-PROJECT_DIR="/Volumes/My Shared Files/project"
+PROJECT_DIR="$HOME/projects/project"
 alias project="cd \"$PROJECT_DIR\""
 if [[ -d "$PROJECT_DIR" ]]; then
     cd "$PROJECT_DIR"
