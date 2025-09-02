@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Build the project
+# Build a MacOS virtual machine that runs Claude AI
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
+
 
 ###############################################################################
 # Functions
@@ -67,6 +68,7 @@ heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
 info "🔨 Installing tools..."
 TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
 TOOLS+=("jq")                       # JSON processing tool
+TOOLS+=("netcat")                   # networking tool
 TOOLS+=("rush")                     # GNU Rush is a Restricted User Shell
 for tool in "${TOOLS[@]}"; do
     command -v "$(basename "$tool")" &>/dev/null || brew install "$tool"
@@ -217,11 +219,13 @@ if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
     wait_for_vm_running "$DST_VM_NAME"
 fi
 
-info "🚀 Getting $DST_VM_NAME IP address"
+info "🚀 Checking $DST_VM_NAME IP connectivity"
 IPADDR="$(tart ip --wait 20 "$DST_VM_NAME")"
-info "🚀 Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
-if ! ssh -i "$SSH_KEYFILE_PRIV" "clodpod@$IPADDR" ; then
+if ! nc -z "$IPADDR" 22 ; then
     error "$LOCAL_NETWORK_ERROR"
     read -n 1 -s -r -p "Press any key to open System Settings -> Privacy & Security"
     open "/System/Library/PreferencePanes/Security.prefPane"
 fi
+
+info "🚀 Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
+exec ssh -i "$SSH_KEYFILE_PRIV" "clodpod@$IPADDR"
