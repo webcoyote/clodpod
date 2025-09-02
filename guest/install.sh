@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
+#SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
 
 
 ###############################################################################
@@ -40,7 +40,7 @@ fi
 # Install and update brew
 ###############################################################################
 # Hide output of brew if VERBOSE_LEVEL is <3
-local QUIET=("--quiet")
+QUIET=("--quiet")
 [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
 
 if ! command -v brew &> /dev/null ; then
@@ -75,7 +75,7 @@ BrewApps+=(shellcheck)          # lint for bash
 BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
-debug "Installing ${BrewApps[@]}..."
+debug "Installing ${BrewApps[*]}..."
 brew install "${QUIET[@]}" "${BrewApps[@]}"
 
 
