@@ -5,25 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 
 ###############################################################################
-# Preconditions
-###############################################################################
-if [[ $OSTYPE != 'darwin'* ]]; then
-    echo >&2 "ERROR: this script is for Mac OSX"
-    exit 1
-fi
-
-
-###############################################################################
 # Functions
 ###############################################################################
 info () {
-  echo >&2 -e "\033[36m$*\033[0m"
+  [[ "$VERBOSE" == "" ]] || echo >&2 -e "ℹ️ \033[36m$*\033[0m"
 }
 warn () {
-  echo >&2 -e "\033[33m$*\033[0m"
+  echo >&2 -e "⚠️ \033[33m$*\033[0m"
 }
 error () {
-  echo >&2 -e "\033[31m$*\033[0m"
+  echo >&2 -e "❌ \033[31m$*\033[0m"
 }
 abort () {
   error "$@"
@@ -32,14 +23,22 @@ abort () {
 
 
 ###############################################################################
+# Preconditions
+###############################################################################
+if [[ $OSTYPE != 'darwin'* ]]; then
+    abort "ERROR: this script is for Mac OSX"
+fi
+
+
+###############################################################################
 # Install and update brew
 ###############################################################################
 if ! command -v brew &> /dev/null ; then
-    info "🔨 Installing brew..."
+    info "Installing brew..."
     /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 if [[ "${FAST:-0}" == "0" ]]; then
-    info "🔨 Updating brew..."
+    info "Updating brew..."
     brew update --quiet && brew upgrade --quiet
 fi
 
@@ -69,20 +68,19 @@ BrewApps+=(shellcheck)          # lint for bash
 BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
-info "🔨 Installing ${BrewApps[@]}..."
+info "Installing ${BrewApps[@]}..."
 brew install --quiet "${BrewApps[@]}"
 
 
 ###############################################################################
 # Install claude
 ###############################################################################
-info "🔨 Installing npm and claude..."
+info "Installing npm and claude..."
 npm install -g npm@latest >/dev/null
 
 #npm install -g @anthropic-ai/claude-code >/dev/null
 warn "Installing outdated claude@1.0.67 to fix login problem"
 warn "- https://github.com/anthropics/claude-code/issues/5118"
-warn "- https://github.com/anthropics/claude-code/issues/5151"
 npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 
 
@@ -90,11 +88,11 @@ npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 # Create clodpod user and group
 ###############################################################################
 CLODPOD_HOME="/Users/clodpod"
-info "🔨Setting up clodpod user and group..."
+info "Setting up clodpod user and group..."
 
 # Check if group exists, create if needed
 if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
-    info "🔨Creating clodpod group..."
+    info "Creating clodpod group..."
 
     # Find next available UID/GID starting from 501
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -104,12 +102,12 @@ if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Groups/clodpod
     GROUP_ID=$NEXT_UID
 else
-    info "🔨Group clodpod already exists"
+    info "Group clodpod already exists"
     GROUP_ID=$(dscl . -read /Groups/clodpod PrimaryGroupID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure group has all required properties (idempotent)
-info "🔨Configuring clodpod group properties..."
+info "Configuring clodpod group properties..."
 if [[ -z "${GROUP_ID:-}" ]]; then
     # Group exists but has no PrimaryGroupID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -120,7 +118,7 @@ sudo dscl . -create /Groups/clodpod RealName "clodpod Group"
 
 # Check if user exists, create if needed
 if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
-    info "🔨Creating clodpod user..."
+    info "Creating clodpod user..."
 
     # Find next available UID
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -130,12 +128,12 @@ if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Users/clodpod
     USER_ID=$NEXT_UID
 else
-    info "🔨User clodpod already exists"
+    info "User clodpod already exists"
     USER_ID=$(dscl . -read /Users/clodpod UniqueID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure user has all required properties (idempotent)
-info "🔨Configuring clodpod user properties..."
+info "Configuring clodpod user properties..."
 if [[ -z "${USER_ID:-}" ]]; then
     # User exists but has no UniqueID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
