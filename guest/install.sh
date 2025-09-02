@@ -48,10 +48,8 @@ if ! command -v brew &> /dev/null ; then
     /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-if [[ "${FAST:-0}" == "0" ]]; then
-    debug "Updating brew..."
-    brew update "${QUIET[@]}" && brew upgrade "${QUIET[@]}"
-fi
+debug "Updating brew..."
+brew update "${QUIET[@]}" && brew upgrade "${QUIET[@]}"
 
 BrewApps=()
 BrewApps+=(bash)                # replace OSX bash 3.2 with something modern
