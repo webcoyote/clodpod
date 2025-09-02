@@ -456,11 +456,13 @@ if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
 
     # Changing the MACOS image requires rebuild
     REBUILD_BASE=true
-    REBUILD_DST=true
 elif ! get_vm_exists "$BASE_VM_NAME" ; then
     REBUILD_BASE=true
-    REBUILD_DST=true
 elif ! get_vm_exists "$DST_VM_NAME" ; then
+    REBUILD_DST=true
+fi
+
+if [[ "${REBUILD_BASE:-}" != "" ]]; then
     REBUILD_DST=true
 fi
 
@@ -521,7 +523,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     clone_vm "$MACOS_IMAGE" "$TMP_VM_NAME"
     run_vm "$TMP_VM_NAME"
 
-    trace "Running install script..."
+    trace "Running install.sh..."
     tart exec -it "$TMP_VM_NAME" \
         "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
         "/Volumes/My Shared Files/__install/install.sh"
@@ -552,7 +554,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         run_vm "$TMP_VM_NAME"
     fi
 
-    trace "Running setup script..."
+    trace "Running configure.sh..."
     tart exec -it "$TMP_VM_NAME" \
         "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
         "/Volumes/My Shared Files/__install/configure.sh"

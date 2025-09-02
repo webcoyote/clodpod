@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-#SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
 
 
 ###############################################################################
@@ -177,4 +177,18 @@ sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
 ###############################################################################
 # Allow clodpod user to update homebrew
 ###############################################################################
+debug "Enable clodpod to update brew files"
 sudo chown -R "clodpod:clodpod" "$(brew --prefix)"
+
+
+###############################################################################
+# Eject mounted DMG files
+###############################################################################
+dmg_volumes=$(hdiutil info | grep "/Volumes/" | grep -E "^/dev/disk[0-9]+s[0-9]+" | awk '{print $1}' || true)
+for volume in $dmg_volumes; do
+    debug "Ejecting $volume..."
+    if ! hdiutil detach "$volume" 2>/dev/null; then
+        debug "Unable to eject $volume..."
+    fi
+done
+
