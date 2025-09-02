@@ -2,7 +2,7 @@
 # Build a MacOS virtual machine that runs Claude AI
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
 WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 
 
@@ -79,7 +79,8 @@ wait_vm_state () {
     local elapsed=0
 
     while [[ $elapsed -lt $timeout ]]; do
-        local state=$(get_vm_state "$vm_name")
+        local state
+        state="$(get_vm_state "$vm_name")"
         if [[ "$state" == "$desired_state" ]]; then
             debug "VM $vm_name is $desired_state"
             return 0
