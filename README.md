@@ -4,9 +4,11 @@
 
 
 ## Key Features
+
 - Manages MacOS virtual machine configured for Claude Code
 - Supports multiple active projects in VM
 - Optional `--no-graphics` mode for headless operation
+
 
 ## Usage
 
@@ -31,6 +33,19 @@ cd "YOUR PROJECT DIRECTORY"
 # Build and run virtual machine but start with a shell prompt instead of claude
 ~/projects/clodpod/scripts/clod run
 ```
+
+### Resource notes
+
+By default the guest CPU count is set to be identical to the host system, and guest memory to `5/8 * host memory` to provide resources for compiling projects in Xcode.
+
+### Build Notes
+
+To speed up building virtual machines, this project creates a base image (`clodpod-xcode-base`), which contains common software packages. It then creates the destination image (`clodpod-xcode`), which includes your configuration files.
+
+In the event you update your config files (say, adding settings to `.zshrc`) you can rebuild the destination image using `clod --rebuild-dst run`. Because this builds from the base image it's a fast operation.
+
+You can rebuild the base image to update using `clod --rebuild-base run`. This automatically rebuilds the destination image also. This is typically only necessary if you're working on developing clod itself.
+
 
 ## License
 

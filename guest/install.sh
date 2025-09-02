@@ -37,6 +37,14 @@ fi
 
 
 ###############################################################################
+# Rename the computer
+###############################################################################
+sudo scutil --set ComputerName "clodpod-xcode-base"
+sudo scutil --set LocalHostName "clodpod-xcode-base"
+sudo scutil --set HostName "clodpod-xcode-base"
+
+
+###############################################################################
 # Install and update brew
 ###############################################################################
 # Hide output of brew if VERBOSE_LEVEL is <3
