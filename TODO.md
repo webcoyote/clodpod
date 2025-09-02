@@ -4,8 +4,6 @@
     mkdir "$HOME/Downloads"
     xcodebuild -downloadPlatform ios
 
-- Use --no-graphics
-
 - Running clodpod from a different directory when the VM is still running uses the old directory
 
 - How to handle running multiple projects and worktrees

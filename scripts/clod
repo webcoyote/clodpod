@@ -14,6 +14,8 @@ BASE_VM_NAME="clodpod-base-xcode"
 DST_VM_NAME="clodpod-xcode"
 VERBOSE="${VERBOSE:-}"
 
+TART_RUN_ARGS=()
+[[ "${NO_GRAPHICS:-}" == "" ]] || TART_RUN_ARGS+=("--no-graphics")
 
 ###############################################################################
 # Functions
@@ -232,6 +234,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
 
     info "Starting $TMP_VM_NAME"
     tart run \
+        "${TART_RUN_ARGS[@]}" \
         --dir "__install:$WORKSPACE/guest" \
         --dir "project:$PROJECT_DIR" \
         "$TMP_VM_NAME" </dev/null &>/dev/null & disown
@@ -259,6 +262,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     else
         tart clone "$BASE_VM_NAME" "$TMP_VM_NAME"
         tart run \
+            "${TART_RUN_ARGS[@]}" \
             --dir "__install:$WORKSPACE/guest" \
             --dir "project:$PROJECT_DIR" \
             "$TMP_VM_NAME" </dev/null &>/dev/null & disown
