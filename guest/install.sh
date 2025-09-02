@@ -7,18 +7,24 @@ SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
 ###############################################################################
 # Functions
 ###############################################################################
+trace () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 2 ]] || echo >&2 -e "🔬 \033[36m$*\033[0m"
+}
+debug () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
+}
 info () {
-  [[ "$VERBOSE" == "" ]] || echo >&2 -e "ℹ️ \033[36m$*\033[0m"
+    echo >&2 -e "ℹ️ \033[36m$*\033[0m"
 }
 warn () {
-  echo >&2 -e "⚠️ \033[33m$*\033[0m"
+    echo >&2 -e "⚠️ \033[33m$*\033[0m"
 }
 error () {
-  echo >&2 -e "❌ \033[31m$*\033[0m"
+    echo >&2 -e "❌ \033[31m$*\033[0m"
 }
 abort () {
-  error "$@"
-  exit 1
+    error "$*"
+    exit 1
 }
 
 
@@ -33,19 +39,20 @@ fi
 ###############################################################################
 # Install and update brew
 ###############################################################################
+# Hide output of brew if VERBOSE_LEVEL is <3
+local QUIET=("--quiet")
+[[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
+
 if ! command -v brew &> /dev/null ; then
-    info "Installing brew..."
+    debug "Installing brew..."
     /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
+
 if [[ "${FAST:-0}" == "0" ]]; then
-    info "Updating brew..."
-    brew update --quiet && brew upgrade --quiet
+    debug "Updating brew..."
+    brew update "${QUIET[@]}" && brew upgrade "${QUIET[@]}"
 fi
 
-
-###############################################################################
-# Install applications
-###############################################################################
 BrewApps=()
 BrewApps+=(bash)                # replace OSX bash 3.2 with something modern
 BrewApps+=(bat)                 # better cat
@@ -68,16 +75,17 @@ BrewApps+=(shellcheck)          # lint for bash
 BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
-info "Installing ${BrewApps[@]}..."
-brew install --quiet "${BrewApps[@]}"
+debug "Installing ${BrewApps[@]}..."
+brew install "${QUIET[@]}" "${BrewApps[@]}"
 
 
 ###############################################################################
 # Install claude
 ###############################################################################
-info "Installing npm and claude..."
+debug "Installing nmp..."
 npm install -g npm@latest >/dev/null
 
+debug "Installing claude..."
 #npm install -g @anthropic-ai/claude-code >/dev/null
 warn "Installing outdated claude@1.0.67 to fix login problem"
 warn "- https://github.com/anthropics/claude-code/issues/5118"
@@ -88,11 +96,11 @@ npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 # Create clodpod user and group
 ###############################################################################
 CLODPOD_HOME="/Users/clodpod"
-info "Setting up clodpod user and group..."
+debug "Setting up clodpod user and group..."
 
 # Check if group exists, create if needed
 if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
-    info "Creating clodpod group..."
+    debug "Creating clodpod group..."
 
     # Find next available UID/GID starting from 501
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -102,12 +110,12 @@ if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Groups/clodpod
     GROUP_ID=$NEXT_UID
 else
-    info "Group clodpod already exists"
+    debug "Group clodpod already exists"
     GROUP_ID=$(dscl . -read /Groups/clodpod PrimaryGroupID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure group has all required properties (idempotent)
-info "Configuring clodpod group properties..."
+debug "Configuring clodpod group properties..."
 if [[ -z "${GROUP_ID:-}" ]]; then
     # Group exists but has no PrimaryGroupID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -118,7 +126,7 @@ sudo dscl . -create /Groups/clodpod RealName "clodpod Group"
 
 # Check if user exists, create if needed
 if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
-    info "Creating clodpod user..."
+    debug "Creating clodpod user..."
 
     # Find next available UID
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
@@ -128,12 +136,12 @@ if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
     sudo dscl . -create /Users/clodpod
     USER_ID=$NEXT_UID
 else
-    info "User clodpod already exists"
+    debug "User clodpod already exists"
     USER_ID=$(dscl . -read /Users/clodpod UniqueID 2>/dev/null | awk '{print $2}')
 fi
 
 # Ensure user has all required properties (idempotent)
-info "Configuring clodpod user properties..."
+debug "Configuring clodpod user properties..."
 if [[ -z "${USER_ID:-}" ]]; then
     # User exists but has no UniqueID, find next available
     NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)

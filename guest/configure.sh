@@ -7,18 +7,24 @@ SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
 ###############################################################################
 # Functions
 ###############################################################################
+trace () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 2 ]] || echo >&2 -e "🔬 \033[36m$*\033[0m"
+}
+debug () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
+}
 info () {
-  [[ "$VERBOSE" == "" ]] || echo >&2 -e "ℹ️ \033[36m$*\033[0m"
+    echo >&2 -e "ℹ️ \033[36m$*\033[0m"
 }
 warn () {
-  echo >&2 -e "⚠️ \033[33m$*\033[0m"
+    echo >&2 -e "⚠️ \033[33m$*\033[0m"
 }
 error () {
-  echo >&2 -e "❌ \033[31m$*\033[0m"
+    echo >&2 -e "❌ \033[31m$*\033[0m"
 }
 abort () {
-  error "$@"
-  exit 1
+    error "$*"
+    exit 1
 }
 
 
@@ -33,7 +39,7 @@ fi
 ###############################################################################
 # Configure clodpod user
 ###############################################################################
-info "Configure clodpod user..."
+debug "Configure clodpod user..."
 
 # Copy files to home directory
 DIST_DIR="/Volumes/My Shared Files/__install"
