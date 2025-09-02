@@ -37,6 +37,14 @@ fi
 
 
 ###############################################################################
+# Rename the computer
+###############################################################################
+sudo scutil --set ComputerName "clodpod-xcode"
+sudo scutil --set LocalHostName "clodpod-xcode"
+sudo scutil --set HostName "clodpod-xcode"
+
+
+###############################################################################
 # Configure clodpod user
 ###############################################################################
 debug "Configure clodpod user..."

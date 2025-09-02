@@ -9,6 +9,7 @@ WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 ###############################################################################
 # Definitions
 ###############################################################################
+VERSION="0.1.0"
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
@@ -122,6 +123,16 @@ stop_vm () {
         tart stop "$vm_name"
         wait_vm_state "$vm_name" "stopped"
     fi
+}
+
+clone_vm () {
+    local src_vm_name="$1"
+    local dst_vm_name="$2"
+    trace "Cloning $src_vm_name to $dst_vm_name..."
+    tart clone "$src_vm_name" "$dst_vm_name"
+    tart set "$dst_vm_name" --random-mac --random-serial
+    tart set "$dst_vm_name" --cpu "$(sysctl -n hw.ncpu)"
+    tart set "$dst_vm_name" --memory "$(( $(sysctl -n hw.memsize) * 5 / 8 / 1048576 ))"
 }
 
 stop_all_vms () {
@@ -276,10 +287,13 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --no-graphics        Run virtual machine without graphics"
+    echo "  --rebuild-base       Force rebuild of the base image (brew update)"
+    echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
     echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
     echo "  -vv                  Set verbosity level 2"
     echo "  -vvv                 Set verbosity level 3"
     echo "  -h, --help           Show this help message"
+    echo "  --version            Show version information"
     echo ""
     echo "Commands:"
     echo "  run                  Run virtual machine with claude"
@@ -288,6 +302,11 @@ show_help() {
     echo "  list                 List all projects"
     echo "  add <path> [name]    Add a new project (name defaults to basename of path)"
     echo "  remove <identifier>  Remove project by name or path"
+    exit 0
+}
+
+show_version() {
+    echo "clod version $VERSION"
     exit 0
 }
 
@@ -311,8 +330,19 @@ while [[ $# -gt 0 ]]; do
             NO_GRAPHICS=true
             shift
             ;;
+        --rebuild-base)
+            REBUILD_BASE=true
+            shift
+            ;;
+        --rebuild-dst)
+            REBUILD_DST=true
+            shift
+            ;;
         -h|--help)
             show_help
+            ;;
+        --version)
+            show_version
             ;;
         -*)
             echo "Unknown option: $1" >&2
@@ -488,8 +518,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     delete_vm "$BASE_VM_NAME"
 
     trace "Cloning image to $TMP_VM_NAME..."
-    tart clone "$MACOS_IMAGE" "$TMP_VM_NAME"
-
+    clone_vm "$MACOS_IMAGE" "$TMP_VM_NAME"
     run_vm "$TMP_VM_NAME"
 
     trace "Running install script..."
@@ -511,12 +540,15 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     debug "Building $DST_VM_NAME..."
 
     # If the base image is already running then do some jiggery-pokery
-    # to rename it so we can avoid stopping the VM and starting another
+    # to rename it so we can avoid stopping the VM and starting another.
+    #
+    # Note that this leaves the application window title unchanged, but
+    # it's faster than stopping and starting the VM.
     if [[ "$(get_vm_state "$BASE_VM_NAME")" == "running" ]]; then
         tart rename "$BASE_VM_NAME" "$TMP_VM_NAME"
-        tart clone "$TMP_VM_NAME" "$BASE_VM_NAME"
+        clone_vm "$TMP_VM_NAME" "$BASE_VM_NAME"
     else
-        tart clone "$BASE_VM_NAME" "$TMP_VM_NAME"
+        clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
         run_vm "$TMP_VM_NAME"
     fi
 
