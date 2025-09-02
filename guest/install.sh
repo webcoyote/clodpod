@@ -3,12 +3,19 @@ set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+
+###############################################################################
+# Preconditions
+###############################################################################
 if [[ $OSTYPE != 'darwin'* ]]; then
     echo >&2 "ERROR: this script is for Mac OSX"
     exit 1
 fi
 
 
+###############################################################################
+# Functions
+###############################################################################
 info () {
   echo >&2 -e "\033[36m$*\033[0m"
 }
@@ -25,7 +32,7 @@ abort () {
 
 
 ###############################################################################
-# Install brew
+# Install and update brew
 ###############################################################################
 if ! command -v brew &> /dev/null ; then
     info "🔨 Installing brew..."
@@ -52,18 +59,16 @@ BrewApps+=(git-delta)           # better pager for git diff
 BrewApps+=(git-lfs)             # big files
 BrewApps+=(gnu-getopt)          # because OSX getopt is ancient
 BrewApps+=(jq)                  # mangle JSON from the command line
+BrewApps+=(mas)                 # Apple Store command line
 BrewApps+=(node)                # NodeJS
+BrewApps+=(pnpm)                # NodeJS package manager (faster than npm)
+BrewApps+=(python)              # Python language
 BrewApps+=(rg)                  # better grep
 BrewApps+=(sd)                  # better sed
 BrewApps+=(shellcheck)          # lint for bash
 BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
-if [[ "${FAST:-0}" == "0" ]]; then
-    BrewApps+=(mas)                 # Apple Store command line
-    BrewApps+=(pnpm)                # NodeJS package manager (faster than npm)
-    BrewApps+=(python)              # Python language
-fi
 info "🔨 Installing ${BrewApps[@]}..."
 brew install --quiet "${BrewApps[@]}"
 
@@ -74,10 +79,10 @@ brew install --quiet "${BrewApps[@]}"
 info "🔨 Installing npm and claude..."
 npm install -g npm@latest >/dev/null
 
+#npm install -g @anthropic-ai/claude-code >/dev/null
 warn "Installing outdated claude@1.0.67 to fix login problem"
 warn "- https://github.com/anthropics/claude-code/issues/5118"
 warn "- https://github.com/anthropics/claude-code/issues/5151"
-#npm install -g @anthropic-ai/claude-code >/dev/null
 npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 
 
@@ -150,29 +155,11 @@ sudo dscl . -create /Users/clodpod IsHidden 1  # Hide from login window
 
 # Let's allow the user to login as this user if they want
 #sudo dscl . -create /Users/clodpod IsHidden 0
-#sudo dscl . -passwd /Users/clodpod "admin"
+#sudo dscl . -passwd /Users/clodpod "clodpod"
 
 # Now add only to the SSH access group (required for SSH login)
 # do not use sudo dscl; it creates duplicate entries when run more than once
 sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
-
-
-DIST_DIR="/Volumes/My Shared Files/install"
-info "🔨 Copying from install directory to home directory..."
-sudo mkdir -p "$CLODPOD_HOME"
-sudo cp -rf "$DIST_DIR/home/." "$CLODPOD_HOME/"
-sudo chown -R "clodpod:clodpod" "$CLODPOD_HOME"
-sudo chmod 755 "$CLODPOD_HOME"
-sudo chmod 700 "$CLODPOD_HOME/.ssh"
-if [[ -f "$CLODPOD_HOME/authorized_keys" ]]; then
-    sudo chmod 600 "$CLODPOD_HOME/authorized_keys"
-fi
-if [[ -f "$CLODPOD_HOME/.ssh/id_ed25519" ]]; then
-    sudo chmod 600 "$CLODPOD_HOME/.ssh/id_ed25519"
-fi
-if [[ -f "$CLODPOD_HOME/.ssh/id_ed25519.pub" ]]; then
-    sudo chmod 644 "$CLODPOD_HOME/.ssh/id_ed25519.pub"
-fi
 
 
 ###############################################################################
