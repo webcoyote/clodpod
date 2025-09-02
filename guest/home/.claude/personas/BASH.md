@@ -16,4 +16,4 @@ Every bash script should start with this preamble:
 #!/usr/bin/env bash
 set -euo pipefail
 trap 'echo >&2 "❌ [$0:$LINENO]: $BASH_COMMAND: exit $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"

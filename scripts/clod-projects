@@ -2,7 +2,7 @@
 # Build the project
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
 WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 
 # Database file location

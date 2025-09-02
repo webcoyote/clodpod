@@ -2,7 +2,7 @@
 # Script to install git hooks from git-hooks directory to .git/hooks
 set -euo pipefail
 trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$BASH_SOURCE")" && pwd)"
 HOOKS_DIR="$SCRIPT_DIR/git-hooks"
 
 # Use rev-parse to support worktrees
