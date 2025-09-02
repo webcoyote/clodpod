@@ -1,6 +1,6 @@
 # TODO.md
 
-- Download SDKS in base image?
+- Download SDKS in base image
 
     mkdir "$HOME/Downloads"
     xcodebuild -downloadPlatform ios
@@ -9,11 +9,13 @@
 
     git worktree list
 
-- Setup local machine shell that accepts a limited set of commands
+- Setup local machine shell that accepts a limited set of commandsa
+
      - tasks notifications from claude hooks
      - running the ios simulator
 
-- Install updates
+- Install updates. The code below almost works, but I suspect it will be easier to just update the base image periodically.
+
     # Check for available updates
     debug "Checking for available updates..."
     UPDATES=$(sudo softwareupdate --list 2>&1)
