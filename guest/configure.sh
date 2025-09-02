@@ -32,15 +32,27 @@ abort () {
 
 
 ###############################################################################
-# Configure user home directory
+# Configure clodpod user
 ###############################################################################
-DIST_DIR="/Volumes/My Shared Files/install"
-info "🔨 Copying from install directory to home directory..."
+info "🔨 Configure clodpod user..."
+
+# Copy files to home directory
+DIST_DIR="/Volumes/My Shared Files/__install"
 sudo mkdir -p "/Users/clodpod"
 sudo cp -rf "$DIST_DIR/home/." "/Users/clodpod/"
-sudo chown -R "clodpod:clodpod" "/Users/clodpod"
-sudo chmod 755 "/Users/clodpod"
 
+# Create symbolic links for all the projects
+sudo mkdir -p "/Users/clodpod/projects"
+fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | while IFS= read -r -d '' dir; do
+    [[ "$(basename "$dir")" == "__install" ]] && continue
+    sudo ln -sf "$dir" "/Users/clodpod/projects/$(basename "$dir")"
+done
+
+# Make clodpod the owner of the files
+sudo chown -R "clodpod:clodpod" "/Users/clodpod"
+
+# Fixup file permissions
+sudo chmod 755 "/Users/clodpod"
 sudo chmod 700 "/Users/clodpod/.ssh"
 if [[ -f "/Users/clodpod/authorized_keys" ]]; then
     sudo chmod 600 "/Users/clodpod/authorized_keys"
