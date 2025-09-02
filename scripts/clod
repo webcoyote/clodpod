@@ -10,28 +10,32 @@ WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 # Definitions
 ###############################################################################
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
-BASE_VM_NAME="clodpod-base-xcode"
+BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
-PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
-PROJECT="$(basename "$PROJECT_DIR")"
 
 
 ###############################################################################
 # Functions
 ###############################################################################
+trace () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 2 ]] || echo >&2 -e "🔬 \033[36m$*\033[0m"
+}
+debug () {
+    [[ "${VERBOSE_LEVEL:-0}" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
+}
 info () {
-  [[ "${VERBOSE:-}" == "" ]] || echo >&2 -e "ℹ️ \033[36m$*\033[0m"
+    echo >&2 -e "ℹ️ \033[36m$*\033[0m"
 }
 warn () {
-  echo >&2 -e "⚠️ \033[33m$*\033[0m"
+    echo >&2 -e "⚠️ \033[33m$*\033[0m"
 }
 error () {
-  echo >&2 -e "❌ \033[31m$*\033[0m"
+    echo >&2 -e "❌ \033[31m$*\033[0m"
 }
 abort () {
-  error "$@"
-  exit 1
+    error "$*"
+    exit 1
 }
 
 
@@ -77,10 +81,10 @@ wait_vm_state () {
     while [[ $elapsed -lt $timeout ]]; do
         local state=$(get_vm_state "$vm_name")
         if [[ "$state" == "$desired_state" ]]; then
-            info "VM $vm_name is $desired_state"
+            debug "VM $vm_name is $desired_state"
             return 0
         fi
-        info "⏳ Waiting for VM to be $desired_state... ($elapsed/$timeout seconds)"
+        trace "⏳ Waiting for $vm_name to be $desired_state... ($elapsed/$timeout seconds)"
         sleep 1
         ((elapsed++)) || true
     done
@@ -93,12 +97,18 @@ wait_vm_running () {
 
 run_vm () {
     local vm_name="$1"
-    info "Starting $vm_name"
+    debug "Running $vm_name"
+
+    # Get directories to map into the VM
+    local args=()
+    get_map_directories args
+    [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
+
     tart run \
-        "${TART_RUN_ARGS[@]}" \
+        "${args[@]}" \
         "$vm_name" </dev/null &>/dev/null & disown
     wait_vm_running "$vm_name"
-    # Mark all projects as active after VM starts successfully
+    # Mark all projects as active after virtual machine starts successfully
     sqlite3 "$DB_FILE" <<EOF
 UPDATE projects SET active = 1;
 EOF
@@ -107,9 +117,26 @@ EOF
 stop_vm () {
     local vm_name="$1"
     if [[ "$(get_vm_state "$vm_name")" != "stopped" ]]; then
-        info "Stopping $vm_name..."
+        debug "Stopping $vm_name..."
         tart stop "$vm_name"
         wait_vm_state "$vm_name" "stopped"
+    fi
+}
+
+stop_all_vms () {
+    local running_vms
+    running_vms=$(tart list --format json | jq -r '.[] | select(.State == "running") | .Name')
+
+    info "Stopping all clodpod virtual machines"
+    if [[ -n "$running_vms" ]]; then
+        while IFS= read -r vm_name; do
+            if [[ "$vm_name" =~ ^clodpod- ]]; then
+                stop_vm "$vm_name"
+            fi
+            if [[ "$vm_name" =~ ^clodpod-tmp ]]; then
+                delete_vm "$vm_name"
+            fi
+        done <<< "$running_vms"
     fi
 }
 
@@ -117,7 +144,7 @@ delete_vm () {
     local vm_name="$1"
     if tart list --quiet | grep "^$vm_name$" >/dev/null ; then
         stop_vm "$vm_name"
-        info "Deleting $vm_name..."
+        debug "Deleting $vm_name..."
         tart delete "$vm_name" &>/dev/null || true
     fi
 }
@@ -129,6 +156,7 @@ cleanup_tmp_vm () {
 }
 
 init_db() {
+    debug "Creating $DB_FILE database..."
     sqlite3 "$DB_FILE" <<EOF
 CREATE TABLE IF NOT EXISTS projects (
     path TEXT UNIQUE NOT NULL,
@@ -139,13 +167,14 @@ CREATE TABLE IF NOT EXISTS projects (
 EOF
 }
 
-check_active() {
+check_projects_active() {
     # Returns 0 (success) if all projects are active, 1 otherwise
     local inactive_count
     inactive_count=$(sqlite3 "$DB_FILE" <<EOF
 SELECT COUNT(*) FROM projects WHERE active = 0;
 EOF
 )
+    trace "Inactive projects: $inactive_count"
     [[ "$inactive_count" -eq 0 ]]
 }
 
@@ -154,7 +183,7 @@ add_project_internal () {
     local name="${2:-}"
 
     if [[ -z "$path" ]]; then
-        echo "Error: Path is required" >&2
+        error "Error: path is required to add project"
         return 1
     fi
 
@@ -174,7 +203,7 @@ add_project() {
     local name="${2:-}"
 
     if add_project_internal "$path" "$name"; then
-        echo "Project added: $name ($path)"
+        info "Project added: $name ($path)"
     fi
 }
 
@@ -182,7 +211,7 @@ remove_project() {
     local identifier="${1:-}"
 
     if [[ -z "$identifier" ]]; then
-        echo "Error: Project name or path required" >&2
+        error "Error: Project name or path required to remove project"
         return 1
     fi
     path="$(realpath "$identifier")"
@@ -196,9 +225,9 @@ EOF
 )
 
     if [[ ${rows_affected:-0} -gt 0 ]]; then
-        echo "Project removed"
+        info "Project removed"
     else
-        echo "Error: Project not found" >&2
+        error "Error: Project not found"
         return 1
     fi
 }
@@ -210,9 +239,9 @@ EOF
 }
 
 # Get all projects as bash array with --dir format
-# Usage: get_projects_array ARRAY_NAME
+# Usage: get_map_directories ARRAY_NAME
 # Populates the named array with entries like: "--dir" "name:path"
-get_projects_array() {
+get_map_directories() {
     local -n arr="$1"
     arr=()
 
@@ -221,6 +250,10 @@ get_projects_array() {
 SELECT name, path FROM projects ORDER BY date_added DESC;
 EOF
 )
+
+    # Always map the guest directory into the VM as "__install"
+    # so install/configure scripts are available during build
+    arr+=("--dir" "__install:$WORKSPACE/guest")
 
     if [[ -n "$result" ]]; then
         while IFS='|' read -r name path; do
@@ -231,20 +264,66 @@ EOF
 
 
 ###############################################################################
-# Install required tools
+# Parse command line options
 ###############################################################################
-info "Installing tools..."
-TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
-TOOLS+=("jq")                       # JSON processing tool
-TOOLS+=("netcat")                   # test connectivity to guest VM
-TOOLS+=("rush")                     # Restricted User SHell
-TOOLS+=("sqlite3")                  # database for projects
-for tool in "${TOOLS[@]}"; do
-    if ! command -v "$(basename "$tool")" &>/dev/null ; then
-        info "Installing $tool"
-        brew install --quiet "$tool"
-    fi
+VERBOSE_LEVEL="${VERBOSE_LEVEL:-0}"
+NO_GRAPHICS="${NO_GRAPHICS:-}"
+
+show_help() {
+    appname=$(basename "$0")
+    echo "Usage: $appname [options] command [args...]"
+    echo ""
+    echo "Options:"
+    echo "  --no-graphics        Run virtual machine without graphics"
+    echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
+    echo "  -vv                  Set verbosity level 2"
+    echo "  -vvv                 Set verbosity level 3"
+    echo "  -h, --help           Show this help message"
+    echo ""
+    echo "Commands:"
+    echo "  run                  Run virtual machine with claude"
+    echo "  shell                Run virtual machine with shell"
+    echo "  stop                 Stop running all clodpod virtual machines"
+    echo "  list                 List all projects"
+    echo "  add <path> [name]    Add a new project (name defaults to basename of path)"
+    echo "  remove <identifier>  Remove project by name or path"
+    exit 0
+}
+
+# Parse options before parsing command
+NEW_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -v|--verbose)
+            ((VERBOSE_LEVEL++)) || true
+            shift
+            ;;
+        -vv)
+            ((VERBOSE_LEVEL+=2)) || true
+            shift
+            ;;
+        -vvv)
+            ((VERBOSE_LEVEL+=3)) || true
+            shift
+            ;;
+        --no-graphics)
+            NO_GRAPHICS=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            NEW_ARGS+=("$1")
+            shift
+            ;;
+    esac
 done
+set -- "${NEW_ARGS[@]}"
 
 
 ###############################################################################
@@ -259,7 +338,7 @@ case "${1:-}" in
     shell)
         ;;
     stop)
-        stop_vm "$DST_VM_NAME"
+        stop_all_vms
         exit 0
         ;;
     add)
@@ -275,26 +354,45 @@ case "${1:-}" in
         exit 0
         ;;
     *)
-        appname=$(basename "$0")
-        echo "Usage: $appname command [args...]"
-        echo ""
-        echo "Commands:"
-        echo "  run                  Run claude in a virtual machine"
-        echo "  shell                Run shell in a virtual machine"
-        echo "  stop                 Stop running virtual machine"
-        echo "  list                 List all projects"
-        echo "  add <path> [name]    Add a new project (name defaults to basename of path)"
-        echo "  remove <identifier>  Remove project by name or path"
-        exit 1
+        show_help
         ;;
 esac
 
+
+# Try to set the project directory to the top-level directory of the git repository
+# to minimize the number of directories that get mapped into the virtual machine.
+PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
+PROJECT="$(basename "$PROJECT_DIR")"
+debug "PROJECT_DIR: ${PROJECT_DIR}"
+
+# Add the current directory to the list of projects
 add_project_internal "$PROJECT_DIR" "$PROJECT"
 
-TART_RUN_ARGS=()
-get_projects_array TART_RUN_ARGS
-TART_RUN_ARGS+=("--dir" "__install:$WORKSPACE/guest")
-[[ "${NO_GRAPHICS:-}" == "" ]] || TART_RUN_ARGS+=("--no-graphics")
+
+###############################################################################
+# Install required tools
+###############################################################################
+install_tools () {
+    debug "Installing tools..."
+    local TOOLS=()
+    TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
+    TOOLS+=("jq")                       # JSON processing tool
+    TOOLS+=("netcat")                   # test connectivity to guest VM
+    TOOLS+=("rush")                     # Restricted User SHell
+    TOOLS+=("sqlite3")                  # database for projects
+
+    # Hide output of brew if VERBOSE_LEVEL is <3
+    local QUIET=("--quiet")
+    [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
+
+    for tool in "${TOOLS[@]}"; do
+        if ! command -v "$(basename "$tool")" &>/dev/null ; then
+            info "Installing $tool"
+            brew install "${QUIET[@]}" "$tool"
+        fi
+    done
+}
+install_tools
 
 
 ###############################################################################
@@ -323,7 +421,7 @@ if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
     DOWNLOAD_IMAGE=true
 
     # This is probably the first time install; be more verbose
-    VERBOSE=true
+    [[ "${VERBOSE_LEVEL:-0}" -ge 2 ]] || VERBOSE_LEVEL=2
 
     # Changing the MACOS image requires rebuild
     REBUILD_BASE=true
@@ -345,19 +443,19 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
 fi
 
 if [[ "${DOWNLOAD_IMAGE:-}" != "" ]]; then
-    info "Downloding image..."
-    tart pull "$MACOS_IMAGE" >/dev/null
+    debug "Downloading image..."
+    tart pull "$MACOS_IMAGE" # >/dev/null
 fi
 
 
 ###############################################################################
-# Configure VM settings
+# Configure virtual machine settings
 ###############################################################################
 if [[ "${REBUILD_DST:-}" != "" ]]; then
-    info "Configuring credentials..."
+    debug "Configuring credentials..."
 
     # Copy claude configuration file, excluding things we don't need
-    warn "Disabling claude auto-updates"
+    warn "Disabling claude auto-updates until they fix their bug"
     warn "- https://github.com/anthropics/claude-code/issues/5118"
     jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers) | .autoUpdates = false' \
         "$HOME/.claude.json" > "$WORKSPACE/guest/home/.claude.json"
@@ -381,24 +479,27 @@ fi
 ###############################################################################
 # It's possible this script will fail or be cancelled halfway
 # through so build to a temporary image and rename when complete
-TMP_VM_NAME="TMP-$(openssl rand -hex 8)"
+TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
 trap cleanup_tmp_vm EXIT
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
+    debug "Building $BASE_VM_NAME..."
     delete_vm "$BASE_VM_NAME"
 
-    info "Cloning image to $TMP_VM_NAME..."
+    trace "Cloning image to $TMP_VM_NAME..."
     tart clone "$MACOS_IMAGE" "$TMP_VM_NAME"
 
     run_vm "$TMP_VM_NAME"
 
-    info "Running install script..."
+    trace "Running install script..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE=${VERBOSE:-}" bash \
+        "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
         "/Volumes/My Shared Files/__install/install.sh"
 
-    info "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
+    trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
+
+    debug "Building $BASE_VM_NAME successful"
 fi
 
 
@@ -406,6 +507,8 @@ fi
 # Create Dst VM
 ###############################################################################
 if [[ "${REBUILD_DST:-}" != "" ]]; then
+    debug "Building $DST_VM_NAME..."
+
     # If the base image is already running then do some jiggery-pokery
     # to rename it so we can avoid stopping the VM and starting another
     if [[ "$(get_vm_state "$BASE_VM_NAME")" == "running" ]]; then
@@ -416,36 +519,41 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         run_vm "$TMP_VM_NAME"
     fi
 
-    info "Running setup script..."
+    trace "Running setup script..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE=${VERBOSE:-}" bash \
+        "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
         "/Volumes/My Shared Files/__install/configure.sh"
 
-    info "Renaming $TMP_VM_NAME to $DST_VM_NAME"
+    trace "Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+
+    debug "Building $DST_VM_NAME successful"
 fi
 
 ###############################################################################
 # Run the application
 ###############################################################################
+# kitty doesn't set this properly :(
+TERM_PROGRAM="${TERM_PROGRAM:-e.g. ghostty, kitty, iTerm, WezTerm}"
 heredoc LOCAL_NETWORK_ERROR << EOF
 \n
 ERROR: unable to connect to $DST_VM_NAME.
 
-This typically occurs when your terminal program ($TERM_PROGRAM)
-has not been granted "Local Network" access rights.
+Your terminal app ($TERM_PROGRAM)
+has not been granted "Local Network" access rights,
+which are required to SSH to the Virtual Machine.
 
 - Open "System Settings.app"
 - Navigate to "Privacy & Security"
 - Select "Local Network"
-- Grant access to "$TERM_PROGRAM"
+- Grant access to your terminal application
 \n
 EOF
 
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
     run_vm "$DST_VM_NAME"
-elif ! check_active ; then
-    warn "New project added; VM restart needed"
+elif ! check_projects_active ; then
+    warn "New project directory added; virtual machine restart required"
     read -p "$DST_VM_NAME is running; restart it? (y/N)" -n 1 -r response
     echo
     [[ "$response" =~ ^[Yy]$ ]] || exit 0
@@ -453,15 +561,15 @@ elif ! check_active ; then
     run_vm "$DST_VM_NAME"
 fi
 
-info "Checking $DST_VM_NAME IP connectivity"
+debug "Checking $DST_VM_NAME IP connectivity"
 IPADDR="$(tart ip --wait 20 "$DST_VM_NAME")"
 if ! nc -z "$IPADDR" 22 ; then
     error "$LOCAL_NETWORK_ERROR"
-    read -n 1 -s -r -p "Press any key to open System Settings -> Privacy & Security"
+    read -n 1 -s -r -p "Press any key to open System Settings"
     open "/System/Library/PreferencePanes/Security.prefPane"
 fi
 
-info "Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
+debug "Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
 exec ssh \
     -q \
     -t \
