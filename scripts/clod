@@ -12,18 +12,35 @@ WORKSPACE="$(realpath "$SCRIPT_DIR/..")"
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
 BASE_VM_NAME="clodpod-base-xcode"
 DST_VM_NAME="clodpod-xcode"
+VERBOSE="${VERBOSE:-}"
+
+
+###############################################################################
+# Functions
+###############################################################################
+info () {
+  [[ "$VERBOSE" == "" ]] || echo >&2 -e "ℹ️ \033[36m$*\033[0m"
+}
+warn () {
+  echo >&2 -e "⚠️ \033[33m$*\033[0m"
+}
+error () {
+  echo >&2 -e "❌ \033[31m$*\033[0m"
+}
+abort () {
+  error "$@"
+  exit 1
+}
 
 
 ###############################################################################
 # Preconditions
 ###############################################################################
 if [[ $OSTYPE != 'darwin'* ]]; then
-    echo >&2 "ERROR: this script is for Mac OSX"
-    exit 1
+    abort "ERROR: this script is for Mac OSX"
 fi
 if [[ ! -f "$HOME/.claude.json" ]]; then
-    echo >&2 "ERROR: missing '$HOME/.claude.json'"
-    exit 1
+    abort "ERROR: missing '$HOME/.claude.json'"
 fi
 
 
@@ -38,20 +55,6 @@ fi
 ###############################################################################
 # Functions
 ###############################################################################
-info () {
-  echo >&2 -e "\033[36m$*\033[0m"
-}
-warn () {
-  echo >&2 -e "\033[33m$*\033[0m"
-}
-error () {
-  echo >&2 -e "\033[31m$*\033[0m"
-}
-abort () {
-  error "$@"
-  exit 1
-}
-
 # heredoc MESSAGE << EOF
 #    your favorite text here
 # EOF
@@ -80,14 +83,14 @@ wait_vm_state () {
     while [[ $elapsed -lt $timeout ]]; do
         local state=$(get_vm_state "$vm_name")
         if [[ "$state" == "$desired_state" ]]; then
-            info "✅ VM '$vm_name' is $desired_state"
+            info "VM $vm_name is $desired_state"
             return 0
         fi
         info "⏳ Waiting for VM to be $desired_state... ($elapsed/$timeout seconds)"
         sleep 1
         ((elapsed++)) || true
     done
-    abort "❌ VM '$vm_name' failed to be $desired_state within $timeout seconds"
+    abort "VM $vm_name failed to be $desired_state within $timeout seconds"
 }
 
 wait_vm_running () {
@@ -97,7 +100,7 @@ wait_vm_running () {
 stop_vm () {
     local vm_name="$1"
     if [[ "$(get_vm_state "$vm_name")" != "stopped" ]]; then
-        info "🛑 Stopping $vm_name..."
+        info "Stopping $vm_name..."
         tart stop "$vm_name"
         wait_vm_state "$vm_name" "stopped"
     fi
@@ -107,7 +110,7 @@ delete_vm () {
     local vm_name="$1"
     if tart list --quiet | grep "^$vm_name$" >/dev/null ; then
         stop_vm "$vm_name"
-        info "🛑 Deleting $vm_name..."
+        info "Deleting $vm_name..."
         tart delete "$vm_name" &>/dev/null || true
     fi
 }
@@ -121,14 +124,14 @@ cleanup_tmp_vm () {
 ###############################################################################
 # Install required tools
 ###############################################################################
-info "🔨 Installing tools..."
+info "Installing tools..."
 TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
 TOOLS+=("jq")                       # JSON processing tool
 TOOLS+=("netcat")                   # networking tool
 TOOLS+=("rush")                     # GNU Rush is a Restricted User Shell
 for tool in "${TOOLS[@]}"; do
     if ! command -v "$(basename "$tool")" &>/dev/null ; then
-        info "🔨 Installing $tool"
+        info "Installing $tool"
         brew install --quiet "$tool"
     fi
 done
@@ -159,6 +162,9 @@ if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
     # running images to avoid asking questions after a long delay
     DOWNLOAD_IMAGE=true
 
+    # This is probably the first time install; be more verbose
+    VERBOSE=true
+
     # Changing the MACOS image requires rebuild
     REBUILD_BASE=true
     REBUILD_DST=true
@@ -179,7 +185,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
 fi
 
 if [[ "${DOWNLOAD_IMAGE:-}" != "" ]]; then
-    info "🔨 Downloding image..."
+    info "Downloding image..."
     tart pull "$MACOS_IMAGE" >/dev/null
 fi
 
@@ -188,12 +194,11 @@ fi
 # Configure VM settings
 ###############################################################################
 if [[ "${REBUILD_DST:-}" != "" ]]; then
-    info "🔨 Configuring credentials..."
+    info "Configuring credentials..."
 
     # Copy claude configuration file, excluding things we don't need
     warn "Disabling claude auto-updates"
     warn "- https://github.com/anthropics/claude-code/issues/5118"
-    warn "- https://github.com/anthropics/claude-code/issues/5151"
     jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers) | .autoUpdates = false' \
         "$HOME/.claude.json" > "$WORKSPACE/guest/home/.claude.json"
 
@@ -222,22 +227,22 @@ trap cleanup_tmp_vm EXIT
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     delete_vm "$BASE_VM_NAME"
 
-    info "🔨 Cloning image to $TMP_VM_NAME..."
+    info "Cloning image to $TMP_VM_NAME..."
     tart clone "$MACOS_IMAGE" "$TMP_VM_NAME"
 
-    info "🚀 Starting $TMP_VM_NAME"
+    info "Starting $TMP_VM_NAME"
     tart run \
         --dir "__install:$WORKSPACE/guest" \
         --dir "project:$PROJECT_DIR" \
         "$TMP_VM_NAME" </dev/null &>/dev/null & disown
     wait_vm_running "$TMP_VM_NAME"
 
-    info "🔨 Running install script..."
+    info "Running install script..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
         "/Volumes/My Shared Files/__install/install.sh"
 
-    info "🔨 Renaming $TMP_VM_NAME to $BASE_VM_NAME"
+    info "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
 fi
 
@@ -260,12 +265,12 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         wait_vm_running "$TMP_VM_NAME"
     fi
 
-    info "🔨 Running setup script..."
+    info "Running setup script..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
         "/Volumes/My Shared Files/__install/configure.sh"
 
-    info "🔨 Renaming $TMP_VM_NAME to $DST_VM_NAME"
+    info "Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
 fi
 
@@ -287,12 +292,12 @@ has not been granted "Local Network" access rights.
 EOF
 
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
-    info "🚀 Starting $DST_VM_NAME"
+    info "Starting $DST_VM_NAME"
     tart run --dir "project:$PROJECT_DIR" "$DST_VM_NAME" </dev/null &>/dev/null & disown
     wait_vm_running "$DST_VM_NAME"
 fi
 
-info "🚀 Checking $DST_VM_NAME IP connectivity"
+info "Checking $DST_VM_NAME IP connectivity"
 IPADDR="$(tart ip --wait 20 "$DST_VM_NAME")"
 if ! nc -z "$IPADDR" 22 ; then
     error "$LOCAL_NETWORK_ERROR"
@@ -300,7 +305,7 @@ if ! nc -z "$IPADDR" 22 ; then
     open "/System/Library/PreferencePanes/Security.prefPane"
 fi
 
-info "🚀 Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
+info "Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
 exec ssh \
     -q \
     -o StrictHostKeyChecking=no \
