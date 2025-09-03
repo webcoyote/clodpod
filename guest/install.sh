@@ -27,6 +27,11 @@ abort () {
     exit 1
 }
 
+# heredoc MESSAGE << EOF
+#    your favorite text here
+# EOF
+heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
+
 
 ###############################################################################
 # Preconditions
@@ -83,19 +88,6 @@ BrewApps+=(wget)                # curl with different defaults
 
 debug "Installing ${BrewApps[*]}..."
 brew install "${QUIET[@]}" "${BrewApps[@]}"
-
-
-###############################################################################
-# Install claude
-###############################################################################
-debug "Installing nmp..."
-npm install -g npm@latest >/dev/null
-
-debug "Installing claude..."
-#npm install -g @anthropic-ai/claude-code >/dev/null
-warn "Installing outdated claude@1.0.67 to fix login problem"
-warn "- https://github.com/anthropics/claude-code/issues/5118"
-npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
 
 
 ###############################################################################
@@ -179,6 +171,30 @@ sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
 ###############################################################################
 debug "Enable clodpod to update brew files"
 sudo chown -R "clodpod:clodpod" "$(brew --prefix)"
+
+
+###############################################################################
+# Install claude as clodpod user
+###############################################################################
+# EOF is quoted to delay string expansion until after switching to clodpod user
+heredoc CLAUDE_INSTALL << 'EOF'
+    # For debugging; make sure we're in the correct directory
+    echo "HOME: $HOME"
+
+    # Add ~/.local/bin to avoid nagging from claude
+    mkdir "$HOME/.local/bin"
+    export PATH="$HOME/.local/bin:$PATH"
+
+    # Install claude
+    curl -fsSL https://claude.ai/install.sh | bash
+EOF
+
+debug "Installing claude..."
+sudo mkdir -p "/Users/clodpod"
+sudo chown -R "clodpod:clodpod" "/Users/clodpod"
+sudo chmod 755 "/Users/clodpod"
+cd /
+sudo su - clodpod -c "bash -c '$CLAUDE_INSTALL'"
 
 
 ###############################################################################

@@ -488,9 +488,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     debug "Configuring credentials..."
 
     # Copy claude configuration file, excluding things we don't need
-    warn "Disabling claude auto-updates until they fix their bug"
-    warn "- https://github.com/anthropics/claude-code/issues/5118"
-    jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers) | .autoUpdates = false' \
+    jq  'del(.projects, .cachedChangelog, .tipsHistory, .mcpServers)' \
         "$HOME/.claude.json" > "$WORKSPACE/guest/home/.claude.json"
 
     # Get git config from host

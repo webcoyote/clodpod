@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec "$(brew --prefix)/bin/claude" --dangerously-skip-permissions "$@"
+exec "$HOME/.local/bin/claude" --dangerously-skip-permissions "$@"
