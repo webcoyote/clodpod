@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 
-PROJECT_DIR="/Volumes/My Shared Files/project"
-if [[ -d "$PROJECT_DIR" ]]; then
-  cd "$PROJECT_DIR"
-fi
-
-"$(brew --prefix)/bin/claude" \
-  --dangerously-skip-permissions \
-  "$@"
+exec "$(brew --prefix)/bin/claude" --dangerously-skip-permissions "$@"
