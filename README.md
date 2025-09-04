@@ -66,12 +66,21 @@ Eventually I settled on boxing the whole thing up inside a virtual machine, whic
 In any event, this project is the result. Hope you like it.
 
 
+# Alternatives
+
+### Chamber
+
+[Chamber](https://github.com/cirruslabs/chamber) runs Claude Code inside a macOS virtual machine.
+
+
 # License
 
 This project is licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) for details. ClodPod Copyright (C) Patrick Wyatt 2025. All rights reserved.
 
 
 # Contributors
+
+We welcome contributions and bug reports.
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the list of contributors to this project.
 
