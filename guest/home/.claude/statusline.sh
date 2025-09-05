@@ -41,8 +41,8 @@ readonly YELLOW='\033[93m'    # Bright yellow for modified git status
 readonly RED='\033[91m'       # Bright red for conflicts/errors
 readonly PURPLE='\033[95m'    # Bright purple for directory
 readonly CYAN='\033[96m'      # Bright cyan for python venv
-readonly WHITE='\033[97m'     # Bright white for time
-readonly GRAY='\033[37m' # Gray for separators
+#readonly WHITE='\033[97m'     # Bright white for time
+readonly GRAY='\033[37m'      # Gray for separators
 readonly RESET='\033[0m'      # Reset colors
 readonly BOLD='\033[1m'       # Bold text
 
