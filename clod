@@ -190,12 +190,16 @@ EOF
     [[ "$inactive_count" -eq 0 ]]
 }
 
-add_project_internal () {
+add_project () {
     local path="${1:-}"
     local name="${2:-}"
 
     if [[ -z "$path" ]]; then
         error "Error: path is required to add project"
+        return 1
+    fi
+    if [[ ! -d "$path" ]]; then
+        error "Error: directory not found ($path)"
         return 1
     fi
 
@@ -208,15 +212,11 @@ add_project_internal () {
     sqlite3 "$DB_FILE" <<EOF
 INSERT OR IGNORE INTO projects (path, name, date_added) VALUES ('$path', '$name', datetime('now'));
 EOF
-}
+    sqlite3 "$DB_FILE" <<EOF
+UPDATE projects set date_added = datetime('now') where name = '$name';
+EOF
 
-add_project() {
-    local path="${1:-}"
-    local name="${2:-}"
-
-    if add_project_internal "$path" "$name"; then
-        info "Project added: $name ($path)"
-    fi
+    info "Added project $name ($path)"
 }
 
 remove_project() {
@@ -237,9 +237,9 @@ EOF
 )
 
     if [[ ${rows_affected:-0} -gt 0 ]]; then
-        info "Project removed"
+        info "Removed project $identifier"
     else
-        error "Error: Project not found"
+        error "Error: Project not found ($identifier)"
         return 1
     fi
 }
@@ -296,11 +296,11 @@ show_help() {
     echo "  --version            Show version information"
     echo ""
     echo "Commands:"
-    echo "  run                  Run virtual machine with claude"
-    echo "  shell                Run virtual machine with shell"
+    echo "  run [PATH] [NAME]    Run virtual machine with claude"
+    echo "  shell [PATH] [NAME]  Run virtual machine with shell"
     echo "  stop                 Stop running all clodpod virtual machines"
     echo "  list                 List all projects"
-    echo "  add <path> [name]    Add a new project (name defaults to basename of path)"
+    echo "  add PATH [NAME]      Add a new project (name defaults to basename of path)"
     echo "  remove <identifier>  Remove project by name or path"
     exit 0
 }
@@ -365,8 +365,13 @@ init_db
 case "${1:-}" in
     run)
         COMMAND=claude
+        ARG_DIR="${2:-}"
+        ARG_NAME="${3:-}"
         ;;
     shell)
+        unset COMMAND
+        ARG_DIR="${2:-}"
+        ARG_NAME="${3:-}"
         ;;
     stop)
         stop_all_vms
@@ -389,15 +394,25 @@ case "${1:-}" in
         ;;
 esac
 
+# Add project if requested
+if [[ -n "${ARG_DIR:-}" ]]; then
+    add_project "$ARG_DIR" "$ARG_NAME"
+fi
 
-# Try to set the project directory to the top-level directory of the git repository
-# to minimize the number of directories that get mapped into the virtual machine.
-PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
-PROJECT="$(basename "$PROJECT_DIR")"
-debug "PROJECT_DIR: ${PROJECT_DIR}"
-
-# Add the current directory to the list of projects
-add_project_internal "$PROJECT_DIR" "$PROJECT"
+# If no projects exist then add the current directory as a project
+if [[ "$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM projects;" 2>/dev/null)" -eq 0 ]]; then
+    # Try to set the project directory to the top-level directory of the git repository
+    # to minimize the number of directories that get mapped into the virtual machine.
+    PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
+    PROJECT="$(basename "$PROJECT_DIR")"
+    add_project "$PROJECT_DIR" "$PROJECT"
+else
+    IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
+        projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
+    if [[ -z "${ARG_DIR:-}" ]]; then
+        info "Using project $PROJECT ($PROJECT_DIR)"
+    fi
+fi
 
 
 ###############################################################################
