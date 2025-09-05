@@ -9,7 +9,7 @@ WORKSPACE="$(realpath "$SCRIPT_DIR")"
 ###############################################################################
 # Definitions
 ###############################################################################
-VERSION="1.0.1"
+VERSION="1.0.2"
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
