@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-commit hook to ensure source files end with a blank line
-set -euo pipefail
-trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 
 # Define source file extensions
 SOURCE_EXTENSIONS="\.(swift|h|m|mm|c|cpp|cc|cxx|hpp|hxx|js|ts|tsx|jsx|py|rb|java|kt|rs|go|php|cs|vb|fs|scala|clj|hs|elm|dart|lua|sh|bash|zsh|fish|ps1|bat|cmd|sql|r|R|jl|ex|exs|erl|hrl|pl|pro|lisp|scm|rkt|ml|mli|f|f90|f95|f03|f08|for|ftn|pas|pp|inc|asm|s|S|nasm|yasm|gas|v|sv|svh|vhd|vhdl|tcl|tk|vim|lua|cmake|make|mk|am|in|ac|m4|tex|bib|md|rst|txt|json|xml|yaml|yml|toml|ini|cfg|conf|config|properties|gradle|sbt|pom|gemfile|rakefile|makefile|dockerfile|vagrantfile|gitignore|gitattributes|editorconfig|eslintrc|prettierrc|babelrc|tsconfig|jsconfig|package|composer|cargo|project|solution|workspace|pbxproj|xcodeproj|xcworkspace)$"

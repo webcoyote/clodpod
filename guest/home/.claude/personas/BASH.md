@@ -6,7 +6,7 @@
 ## Best practices
 
 - Use "/usr/bin/env" to locate the bash executable instead of "/bin/bash"
-- Use strict mode (set -euo pipefail) to detect bugs
+- Use strict mode (set -Eeuo pipefail) to detect bugs
 - Use `trap` to output errors to the user
 - Write code that works when the bash script is called from any working directory
 
@@ -14,6 +14,6 @@ Every bash script should start with this preamble:
 
 ```
 #!/usr/bin/env bash
-set -euo pipefail
-trap 'echo >&2 "❌ [$0:$LINENO]: $BASH_COMMAND: exit $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
+set -Eeuo pipefail
+trap 'echo >&2 "❌ [${BASH_SOURCE[0]}:$LINENO]: $BASH_COMMAND: exit $?"' ERR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#set -euo pipefail
+#set -Eeuo pipefail
 
 # Make sure this file is executable: chmod +x ~/.claude/statusline-command.sh
 
