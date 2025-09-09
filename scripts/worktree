@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create/use a worktree for a feature branch
-set -euo pipefail
-trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 
 # Only works for git repos
 if ! git rev-parse --git-dir > /dev/null 2>&1; then

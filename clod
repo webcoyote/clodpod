@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build a MacOS virtual machine that runs Claude Code and developer tools
-set -euo pipefail
-trap 'echo "$0: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[@]}")" && pwd)"
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(realpath "$SCRIPT_DIR")"
 
 
@@ -282,7 +282,7 @@ VERBOSE_LEVEL="${VERBOSE_LEVEL:-0}"
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 
 show_help() {
-    appname=$(basename "$0")
+    appname=$(basename "${BASH_SOURCE[0]}")
     echo "Usage: $appname [options] command [args...]"
     echo ""
     echo "Options:"
