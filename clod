@@ -59,6 +59,33 @@ fi
 # EOF
 heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
 
+install_tools () {
+    # Install brew
+    if ! command -v brew &> /dev/null ; then
+        debug "Installing brew..."
+        /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+
+    debug "Installing tools..."
+    local TOOLS=()
+    TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
+    TOOLS+=("jq")                       # JSON processing tool
+    TOOLS+=("netcat")                   # test connectivity to guest VM
+    TOOLS+=("rush")                     # Restricted User SHell
+    TOOLS+=("sqlite3")                  # database for projects
+
+    # Hide output of brew if VERBOSE_LEVEL is <3
+    local QUIET=("--quiet")
+    [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
+
+    for tool in "${TOOLS[@]}"; do
+        if ! command -v "$(basename "$tool")" &>/dev/null ; then
+            info "Installing $tool"
+            brew install "${QUIET[@]}" "$tool"
+        fi
+    done
+}
+
 get_vm_state () {
     local vm_name="$1"
     local vm_source="${2:-local}"
@@ -274,9 +301,21 @@ EOF
     fi
 }
 
+show_version() {
+    echo "clod version $VERSION"
+    exit 0
+}
+
 
 ###############################################################################
-# Parse command line options
+# Setup
+###############################################################################
+install_tools
+init_db
+
+
+###############################################################################
+# Parse command line
 ###############################################################################
 VERBOSE_LEVEL="${VERBOSE_LEVEL:-0}"
 NO_GRAPHICS="${NO_GRAPHICS:-}"
@@ -305,12 +344,7 @@ show_help() {
     exit 0
 }
 
-show_version() {
-    echo "clod version $VERSION"
-    exit 0
-}
-
-# Parse options before parsing command
+# Parse optional arguments
 NEW_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -357,11 +391,7 @@ done
 set -- "${NEW_ARGS[@]}"
 
 
-###############################################################################
-# Parse command line
-###############################################################################
-init_db
-
+# Parse fixed arguments
 case "${1:-}" in
     run)
         COMMAND=claude
@@ -413,32 +443,6 @@ else
         info "Using project $PROJECT ($PROJECT_DIR)"
     fi
 fi
-
-
-###############################################################################
-# Install required tools
-###############################################################################
-install_tools () {
-    debug "Installing tools..."
-    local TOOLS=()
-    TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
-    TOOLS+=("jq")                       # JSON processing tool
-    TOOLS+=("netcat")                   # test connectivity to guest VM
-    TOOLS+=("rush")                     # Restricted User SHell
-    TOOLS+=("sqlite3")                  # database for projects
-
-    # Hide output of brew if VERBOSE_LEVEL is <3
-    local QUIET=("--quiet")
-    [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
-
-    for tool in "${TOOLS[@]}"; do
-        if ! command -v "$(basename "$tool")" &>/dev/null ; then
-            info "Installing $tool"
-            brew install "${QUIET[@]}" "$tool"
-        fi
-    done
-}
-install_tools
 
 
 ###############################################################################
