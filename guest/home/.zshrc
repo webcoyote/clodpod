@@ -37,6 +37,10 @@ PROJECT="${PROJECT:-project}"
 PROJECT_DIR="$HOME/projects/$PROJECT"
 if [[ -d "$PROJECT_DIR" ]]; then
     cd "$PROJECT_DIR"
+    # If INITIAL_DIR is set, navigate to the subdirectory within the project
+    if [[ -n "${INITIAL_DIR:-}" ]] && [[ -d "$PROJECT_DIR/$INITIAL_DIR" ]]; then
+        cd "$PROJECT_DIR/$INITIAL_DIR"
+    fi
 fi
 if [[ "${COMMAND:-}" != "" ]]; then
     exec "$COMMAND"

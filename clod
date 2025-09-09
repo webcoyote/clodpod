@@ -301,6 +301,38 @@ EOF
     fi
 }
 
+# Check if current directory is inside a project and return project info
+# Outputs: PROJECT_NAME|PROJECT_PATH|RELATIVE_PATH
+# Returns 0 if inside a project, 1 otherwise
+get_current_project_info() {
+    local current_dir
+    current_dir="${1:-$(realpath "$PWD")}"
+    
+    local result
+    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
+SELECT name, path FROM projects ORDER BY date_added DESC;
+EOF
+)
+    
+    if [[ -n "$result" ]]; then
+        while IFS='|' read -r name path; do
+            path="$(realpath "$path")"
+            # Check if current directory is inside this project
+            if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
+                # Calculate relative path from project root
+                local relative_path="${current_dir#$path}"
+                relative_path="${relative_path#/}"  # Remove leading slash if present
+                
+                # Output the results separated by pipe
+                echo "${name}|${path}|${relative_path}"
+                return 0
+            fi
+        done <<< "$result"
+    fi
+    
+    return 1
+}
+
 show_version() {
     echo "clod version $VERSION"
     exit 0
@@ -624,6 +656,19 @@ if ! nc -z "$IPADDR" 22 ; then
 fi
 
 debug "Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
+
+# Check if current directory is inside an existing project
+INITIAL_DIR=""
+if project_info=$(get_current_project_info "${ARG_DIR:-}"); then
+    # Parse the pipe-separated output
+    IFS='|' read -r CURRENT_PROJECT CURRENT_PROJECT_PATH CURRENT_RELATIVE_PATH <<< "$project_info"
+    # If we're inside a project, use that project and set initial directory
+    PROJECT="$CURRENT_PROJECT"
+    PROJECT_DIR="$CURRENT_PROJECT_PATH"
+    INITIAL_DIR="$CURRENT_RELATIVE_PATH"
+    debug "Project: $PROJECT directory: ${INITIAL_DIR:-}"
+fi
+
 exec ssh \
     -q \
     -t \
@@ -631,4 +676,4 @@ exec ssh \
     -o UserKnownHostsFile=/dev/null \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
-    /usr/bin/env "PROJECT=$PROJECT" "COMMAND=${COMMAND:-}" zsh --login
+    /usr/bin/env "PROJECT=$PROJECT" "INITIAL_DIR=$INITIAL_DIR" "COMMAND=${COMMAND:-}" zsh --login
