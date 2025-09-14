@@ -31,12 +31,8 @@ abort () {
 ###############################################################################
 # Create keychain to avoid error dialog
 # error message: "a keychain cannot be found to store ..."
-#
-# This occurs when connecting using "sudo --user=sandvault ..."
-# but not when using "ssh sandvault@..."
-#
-# TODO: I guess the sv script could call this configure script directly
-# with the password the first time instead of it being called from .zshrc
+# This also fixes the problem where it's possible to login to claude,
+# but then claude forgets the token.
 ###############################################################################
 # Explicitly specify the path to avoid confusion with the host user;
 # - security dump-keychain                 => host user

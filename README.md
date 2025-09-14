@@ -61,6 +61,7 @@ TL;DR:
 
 - Add your own install instructions to `./guest/install.sh`, then `clodbuild run --rebuild-base`.
 - Add your own user configuration to `./guest.configure.sh`, then `clod run --rebuild-dst`.
+- Configure Claude Code settings by copying `./guest/home/.env.sample` to `./guest/home/.env` and setting the `CLAUDE_CONFIG_REPO` variable.
 
 Long form:
 
@@ -71,6 +72,16 @@ In the event you update your config files (say, by modifying `./guest/configure.
 If you want to install your own development tools, update `./guest/install.sh` and rebuild the base image to update using `clod --rebuild-base run`, which automatically rebuilds the destination image also.
 
 In practice you can utilize either `install.sh` or `configure.sh` for your setup; the intended workflow is for large/slow operations (like `xcodebuild -downloadPlatform ios`) to occur in during `install.sh`, and small/fast ones during `configure.sh` so that you can quickly experiment with configuration changes without having to re-install all of your tools.
+
+### Configuring Claude Code
+
+ClodPod supports custom Claude Code configurations:
+
+1. Copy `./guest/home/.env.sample` to `./guest/home/.env`
+2. Set the `CLAUDE_CONFIG_REPO` variable to your Git repository containing Claude Code configuration files
+3. Rebuild the destination image using `clod run --rebuild-dst`
+
+The configuration repository will be cloned to `~/.claude` in the guest VM during setup, allowing you to maintain custom Claude Code settings, hooks, and other configurations across VM rebuilds.
 
 
 # Background
