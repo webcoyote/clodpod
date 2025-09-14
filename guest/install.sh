@@ -86,19 +86,6 @@ brew install "${QUIET[@]}" "${BrewApps[@]}"
 
 
 ###############################################################################
-# Install claude
-###############################################################################
-debug "Installing nmp..."
-npm install -g npm@latest >/dev/null
-
-debug "Installing claude..."
-#npm install -g @anthropic-ai/claude-code >/dev/null
-warn "Installing outdated claude@1.0.67 to fix login problem"
-warn "- https://github.com/anthropics/claude-code/issues/5118"
-npm install -g @anthropic-ai/claude-code@1.0.67 >/dev/null
-
-
-###############################################################################
 # Create clodpod user and group
 ###############################################################################
 CLODPOD_HOME="/Users/clodpod"

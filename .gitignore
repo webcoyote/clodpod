@@ -6,6 +6,7 @@
 .claude/settings.local.json
 .env
 .env.*
+!.env.sample
 *.pyc
 .DerivedData/
 xcschememanagement.plist
@@ -13,6 +14,5 @@ xcschememanagement.plist
 /.clodpod.sqlite
 
 # Dynamically created files that shouldn't be committed
-guest/home/.claude.json
 guest/home/.gitconfig
 guest/home/.ssh/authorized_keys
