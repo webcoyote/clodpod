@@ -425,21 +425,21 @@ set -- "${NEW_ARGS[@]}"
 
 # Parse fixed arguments
 case "${1:-}" in
-    run)
+    run|r)
         COMMAND=claude
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
         ;;
-    shell)
+    shell|s)
         unset COMMAND
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
         ;;
-    stop)
+    stop|p)
         stop_all_vms
         exit 0
         ;;
-    add)
+    add|a)
         add_project "${2:-}" "${3:-}"
         exit 0
         ;;
@@ -447,7 +447,7 @@ case "${1:-}" in
         remove_project "${2:-}"
         exit 0
         ;;
-    list|ls)
+    list|ls|l)
         list_projects
         exit 0
         ;;

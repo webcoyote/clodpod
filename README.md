@@ -90,14 +90,17 @@ In any event, this project is the result. Hope you like it.
 
 # Alternatives
 
-### Chamber
-
-[Chamber](https://github.com/cirruslabs/chamber) is a proof-of-concept app for running Claude Code inside a macOS virtual machine.
+- [SandVault](https://github.com/webcoyote/sandvault) runs Claude Code in a limited user account on macOS.
+- [Chamber](https://github.com/cirruslabs/chamber) is a proof-of-concept app for running Claude Code inside a macOS virtual machine.
 
 
 # License
 
-This project is licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) for details. ClodPod Copyright (C) Patrick Wyatt 2025. All rights reserved.
+Apache License, Version 2.0
+
+ClodPod Copyright © 2025 Patrick Wyatt
+
+See [LICENSE.md](LICENSE.md) for details.
 
 
 # Contributors
