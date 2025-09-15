@@ -29,18 +29,21 @@ Usage:
     # Run clod from any of your project directories
     cd "YOUR PROJECT DIRECTORY"
     clod run
+    # also "clod r", "clod claude", or "clod c"
 
     # Or run a command shell
     cd "ANOTHER PROJECT DIRECTORY"
     clod shell
+    # also "clod s"
 
     # Stop all clodpod virtual machines
     clod stop
+    # also "clod p"
 
     # Add/remove/list projects
-    clod add "THIRD PROJECT DIRECTORY"
-    clod remove "FOURTH PROJECT DIRECTORY"
-    clod list
+    clod add "THIRD PROJECT DIRECTORY"          # also "clod a ..."
+    clod remove "FOURTH PROJECT DIRECTORY"      # also "clod rm ..."
+    clod list                                   # also "clod l", "clod ls"
 
 
 ## Setup notes
@@ -59,7 +62,7 @@ Optional virtual machine configuration (example):
 
 TL;DR:
 
-- Add your own install instructions to `./guest/install.sh`, then `clodbuild run --rebuild-base`.
+- Add your own install instructions to `./guest/install.sh`, then `clod run --rebuild-base`.
 - Add your own user configuration to `./guest.configure.sh`, then `clod run --rebuild-dst`.
 - Configure Claude Code settings by copying `./guest/home/.env.sample` to `./guest/home/.env` and setting the `CLAUDE_CONFIG_REPO` variable.
 
