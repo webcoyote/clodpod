@@ -47,17 +47,17 @@ sudo scutil --set HostName "clodpod-xcode-base"
 ###############################################################################
 # Install and update brew
 ###############################################################################
-# Hide output of brew if VERBOSE_LEVEL is <3
-QUIET=("--quiet")
-[[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
-
 if ! command -v brew &> /dev/null ; then
     debug "Installing brew..."
     /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
 debug "Updating brew..."
-brew update "${QUIET[@]}" && brew upgrade "${QUIET[@]}"
+if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+    brew update --quiet && brew upgrade --quiet
+else
+    brew update && brew upgrade
+fi
 
 BrewApps=()
 BrewApps+=(bash)                # replace OSX bash 3.2 with something modern
@@ -73,7 +73,6 @@ BrewApps+=(gnu-getopt)          # because OSX getopt is ancient
 BrewApps+=(jq)                  # mangle JSON from the command line
 BrewApps+=(mas)                 # Apple Store command line
 BrewApps+=(node)                # NodeJS
-BrewApps+=(pnpm)                # NodeJS package manager (faster than npm)
 BrewApps+=(python)              # Python language
 BrewApps+=(rg)                  # better grep
 BrewApps+=(sd)                  # better sed
@@ -82,7 +81,11 @@ BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
 debug "Installing ${BrewApps[*]}..."
-brew install "${QUIET[@]}" "${BrewApps[@]}"
+if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+    brew install --quiet "${BrewApps[@]}"
+else
+    brew install "${BrewApps[@]}"
+fi
 
 
 ###############################################################################

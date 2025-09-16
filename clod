@@ -74,14 +74,14 @@ install_tools () {
     TOOLS+=("rush")                     # Restricted User SHell
     TOOLS+=("sqlite3")                  # database for projects
 
-    # Hide output of brew if VERBOSE_LEVEL is <3
-    local QUIET=("--quiet")
-    [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]] || QUIET=()
-
     for tool in "${TOOLS[@]}"; do
         if ! command -v "$(basename "$tool")" &>/dev/null ; then
-            info "Installing $tool"
-            brew install "${QUIET[@]}" "$tool"
+            trace "Installing $tool..."
+            if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+                brew install --quiet "$tool"
+            else
+                brew install "$tool"
+            fi
         fi
     done
 }
@@ -296,6 +296,9 @@ EOF
 
     if [[ -n "$result" ]]; then
         while IFS='|' read -r name path; do
+            if [[ ! -d "$path" ]]; then
+                abort "Directory '$path' does not exist; use ${BASH_SOURCE[0]} remove '$name'"
+            fi
             arr+=("--dir" "${name}:${path}")
         done <<< "$result"
     fi
@@ -671,4 +674,4 @@ exec ssh \
     -o UserKnownHostsFile=/dev/null \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
-    /usr/bin/env "PROJECT=$PROJECT" "INITIAL_DIR=$INITIAL_DIR" "COMMAND=${COMMAND:-}" zsh --login
+    /usr/bin/env "PROJECT=$PROJECT" "INITIAL_DIR=$INITIAL_DIR" "COMMAND=${COMMAND:-}" zsh --login || true

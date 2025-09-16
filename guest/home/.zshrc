@@ -1,21 +1,7 @@
-export PROMPT="%n@%m %~ %# "
+# .zshrc
 
-# Use GNU CLI binaries over outdated OSX CLI binaries
-if command -v brew &>/dev/null ; then
-    BREW_PREFIX="$(brew --prefix)"
-    if [[ -d "$BREW_PREFIX/opt/coreutils/libexec/gnubin" ]]; then
-        export PATH="$BREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
-    fi
-    if [[ -d "$BREW_PREFIX/opt/gnu-getopt/bin" ]]; then
-        export PATH="$BREW_PREFIX/opt/gnu-getopt/bin:$PATH"
-    fi
-    if [[ -d "$BREW_PREFIX/opt/python/libexec/bin" ]]; then
-        export PATH="$BREW_PREFIX/opt/python/libexec/bin:$PATH"
-    fi
-fi
-
-# My path has high priority than all others
-export PATH="$HOME/bin:$PATH"
+#export PROMPT="%n@%m %~ %# "
+export PROMPT="%F{magenta}%n %F{blue}%~%f %# "
 
 autoload -Uz +X compinit && compinit
 
@@ -55,19 +41,50 @@ else
     alias ll='ls -al'
 fi
 
+# Perform sandvault setup
+"$HOME/configure"
 
-###############################################################################
-# Configure Claude Code
-###############################################################################
-"$HOME/bin/install-claude" || true
+# Use GNU CLI binaries over outdated OSX CLI binaries
+if command -v brew &>/dev/null ; then
+    BREW_PREFIX="$(brew --prefix)"
+    if [[ -d "$BREW_PREFIX/opt/coreutils/libexec/gnubin" ]]; then
+        export PATH="$BREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
+    fi
+    if [[ -d "$BREW_PREFIX/opt/findutils/libexec/gnubin" ]]; then
+        export PATH="$BREW_PREFIX/opt/findutils/libexec/gnubin:$PATH"
+    fi
+    if [[ -d "$BREW_PREFIX/opt/gnu-getopt/bin" ]]; then
+        export PATH="$BREW_PREFIX/opt/gnu-getopt/bin:$PATH"
+    fi
+    if [[ -d "$BREW_PREFIX/opt/python/libexec/bin" ]]; then
+        export PATH="$BREW_PREFIX/opt/python/libexec/bin:$PATH"
+    fi
+fi
+
+# Add clodpod and user bin directories
+export PATH="$HOME/bin:$PATH"
+if [[ -d "$HOME/user/bin" ]]; then
+    export PATH="$HOME/user/bin:$PATH"
+fi
 
 
 ###############################################################################
 # Create symbolic links for all projects
 ###############################################################################
-mkdir -p "/Users/clodpod/projects"
-fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | \
-    xargs -0 ln -sf --target "/Users/clodpod/projects"
+# Wait until install.sh has installed coreutils with homebrew
+# so we can use the simpler/easier/better homebrew ln tool
+LN="$(brew --prefix)/opt/coreutils/libexec/gnubin/ln"
+if [[ -x "$LN" ]]; then
+    mkdir -p "/Users/clodpod/projects"
+    fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | \
+        xargs -0 "$LN" -sf --target "/Users/clodpod/projects"
+fi
+
+
+###############################################################################
+# Load user configuration
+###############################################################################
+[[ -f "$HOME/user/.zshrc" ]] && source "$HOME/user/.zshrc"
 
 
 ###############################################################################
@@ -82,6 +99,8 @@ if [[ -d "$PROJECT_DIR" ]]; then
         cd "$PROJECT_DIR/$INITIAL_DIR"
     fi
 fi
+
+# Run specified application
 if [[ "${COMMAND:-}" != "" ]]; then
     exec "$COMMAND"
 fi
