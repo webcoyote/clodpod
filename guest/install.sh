@@ -7,11 +7,12 @@ trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 ###############################################################################
 # Functions
 ###############################################################################
+[[ "${VERBOSE:-0}" =~ ^[0-9]+$ ]] && VERBOSE="${VERBOSE:-0}" || VERBOSE=1
 trace () {
-    [[ "${VERBOSE_LEVEL:-0}" -lt 2 ]] || echo >&2 -e "🔬 \033[36m$*\033[0m"
+    [[ "$VERBOSE" -lt 2 ]] || echo >&2 -e "🔬 \033[90m$*\033[0m"
 }
 debug () {
-    [[ "${VERBOSE_LEVEL:-0}" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
+    [[ "$VERBOSE" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
 }
 info () {
     echo >&2 -e "ℹ️ \033[36m$*\033[0m"
@@ -53,7 +54,7 @@ if ! command -v brew &> /dev/null ; then
 fi
 
 debug "Updating brew..."
-if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+if [[ "$VERBOSE" -lt 3 ]]; then
     brew update --quiet && brew upgrade --quiet
 else
     brew update && brew upgrade
@@ -81,7 +82,7 @@ BrewApps+=(uv)                  # python package manager
 BrewApps+=(wget)                # curl with different defaults
 
 debug "Installing ${BrewApps[*]}..."
-if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+if [[ "$VERBOSE" -lt 3 ]]; then
     brew install --quiet "${BrewApps[@]}"
 else
     brew install "${BrewApps[@]}"

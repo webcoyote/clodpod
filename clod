@@ -19,11 +19,12 @@ DB_FILE="$WORKSPACE/.clodpod.sqlite"
 ###############################################################################
 # Functions
 ###############################################################################
+[[ "${VERBOSE:-0}" =~ ^[0-9]+$ ]] && VERBOSE="${VERBOSE:-0}" || VERBOSE=1
 trace () {
-    [[ "${VERBOSE_LEVEL:-0}" -lt 2 ]] || echo >&2 -e "🔬 \033[36m$*\033[0m"
+    [[ "$VERBOSE" -lt 2 ]] || echo >&2 -e "🔬 \033[90m$*\033[0m"
 }
 debug () {
-    [[ "${VERBOSE_LEVEL:-0}" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
+    [[ "$VERBOSE" -lt 1 ]] || echo >&2 -e "🔍 \033[36m$*\033[0m"
 }
 info () {
     echo >&2 -e "ℹ️ \033[36m$*\033[0m"
@@ -77,7 +78,7 @@ install_tools () {
     for tool in "${TOOLS[@]}"; do
         if ! command -v "$(basename "$tool")" &>/dev/null ; then
             trace "Installing $tool..."
-            if [[ "${VERBOSE_LEVEL:-0}" -lt 3 ]]; then
+            if [[ "$VERBOSE" -lt 3 ]]; then
                 brew install --quiet "$tool"
             else
                 brew install "$tool"
@@ -352,7 +353,6 @@ init_db
 ###############################################################################
 # Parse command line
 ###############################################################################
-VERBOSE_LEVEL="${VERBOSE_LEVEL:-0}"
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 
 show_help() {
@@ -385,15 +385,15 @@ NEW_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -v|--verbose)
-            ((VERBOSE_LEVEL++)) || true
+            ((VERBOSE++)) || true
             shift
             ;;
         -vv)
-            ((VERBOSE_LEVEL+=2)) || true
+            ((VERBOSE+=2)) || true
             shift
             ;;
         -vvv)
-            ((VERBOSE_LEVEL+=3)) || true
+            ((VERBOSE+=3)) || true
             shift
             ;;
         --no-graphics)
@@ -507,7 +507,7 @@ if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
     DOWNLOAD_IMAGE=true
 
     # This is probably the first time install; be more verbose
-    [[ "${VERBOSE_LEVEL:-0}" -ge 2 ]] || VERBOSE_LEVEL=2
+    [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
 
     # Changing the MACOS image requires rebuild
     REBUILD_BASE=true
@@ -574,7 +574,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
 
     trace "Running install.sh..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
         "/Volumes/My Shared Files/__install/install.sh"
 
     trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
@@ -605,7 +605,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
 
     trace "Running configure.sh..."
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE_LEVEL=${VERBOSE_LEVEL:-0}" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
         "/Volumes/My Shared Files/__install/configure.sh"
 
     trace "Renaming $TMP_VM_NAME to $DST_VM_NAME"
