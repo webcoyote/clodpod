@@ -82,7 +82,7 @@ In any event, this project is the result. Hope you like it.
 
 - [SandVault](https://github.com/webcoyote/sandvault) runs Claude Code in a limited user account on macOS.
 - [Chamber](https://github.com/cirruslabs/chamber) is a proof-of-concept app for running Claude Code inside a macOS virtual machine.
-
+- [Claude Code Sandbox](https://github.com/textcortex/claude-code-sandbox) runs Claude Code in a Docker container (Linux)
 
 # License
 
