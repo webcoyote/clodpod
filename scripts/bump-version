@@ -46,7 +46,7 @@ if [[ ! -f "$PROJECT_PATH" ]]; then
 fi
 
 # Check for clean git workspace
-if ! git diff-index --quiet HEAD -- || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+if ! git diff-index --quiet HEAD -- || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
     echo "Error: Git workspace has uncommitted changes or untracked files."
     echo "Please commit or stash your changes before bumping the version."
     git status --short
@@ -100,6 +100,6 @@ git tag -a "v$NEW_VERSION" -m "Version $NEW_VERSION"
 git push && git push --tags
 
 echo "✓ Version bumped to $NEW_VERSION"
-gecho "✓ Changes committed"
+echo "✓ Changes committed"
 echo "✓ Tag v$NEW_VERSION created"
 echo "✓ Changes pushed"

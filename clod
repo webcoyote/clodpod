@@ -648,6 +648,7 @@ fi
 debug "Checking $DST_VM_NAME IP connectivity"
 IPADDR="$(tart ip --wait 20 "$DST_VM_NAME")"
 if ! nc -z "$IPADDR" 22 ; then
+    # shellcheck disable=SC2154 # LOCAL_NETWORK_ERROR is referenced but not assigned (yes it is)
     error "$LOCAL_NETWORK_ERROR"
     read -n 1 -s -r -p "Press any key to open System Settings"
     open "/System/Library/PreferencePanes/Security.prefPane"
