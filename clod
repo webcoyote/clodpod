@@ -433,6 +433,16 @@ case "${1:-}" in
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
         ;;
+    codex|co)
+        COMMAND=codex
+        ARG_DIR="${2:-}"
+        ARG_NAME="${3:-}"
+        ;;
+    gemini|gem|g)
+        COMMAND=gemini
+        ARG_DIR="${2:-}"
+        ARG_NAME="${3:-}"
+        ;;
     shell|sh|s)
         unset COMMAND
         ARG_DIR="${2:-}"

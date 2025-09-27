@@ -1,16 +1,16 @@
-# ClodPod - Run Claude Code safely in a macOS VM
+# ClodPod - Run AI agents in a macOS VM sandbox
 
-ClodPod creates a macOS virtual machine configured to run Claude Code with `--dangerously-skip-permissions`, avoiding permission prompts without risking your entire computer.
+ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
 
-ClodPod maps any number of your project directories into the virtual machine so Claude Code can work on your code while remaining isolated from your host computer.
+ClodPod maps any number of your project directories into the virtual machine so AI agents can work on your code while remaining isolated from your host computer.
 
 ClodPod virtual machines include Xcode and common development tools, and it's easy to extend to add your own development tools and configuration files.
 
 Key features:
 
-- Builds a virtual machine and launches Claude Code with access to your projects
+- Builds a virtual machine and launches AI agents with access to your projects
 - Enables mapping multiple projects in the same virtual machine simultaneously
-- Open multiple Claude Code sessions and shell prompts, or use the GUI
+- Open multiple AI agents sessions and shell prompts, or use the GUI
 - Headless mode for CI/CD workflows with `--no-graphics`
 - Includes Xcode and common development tools; you can add your own tools too
 - Fast rebuild and relaunch using a two-layer caching system
@@ -34,7 +34,15 @@ Usage:
 
     # Run Claude Code
     clod claude
-    # also "clod c" or "clod cl"
+    # also clod cl"
+
+    # Run OpenAI Codex
+    clod codex
+    # also "clod co"
+
+    # Run Google Gemini
+    clod gemini
+    # also "clod g"
 
     # Or a command shell
     clod shell
@@ -71,13 +79,13 @@ To add custom configuration; see `./guest/home/README.md`.
 
 # Background
 
-This project exists because I was foolishly trying to find a way to insulate my computer from destruction by rogue AI agents when running Claude Code with `--dangerously-skip-permissions` (to avoid frequent "do you want to proceed?" dialogs), when perhaps I should have simply learned to accept their infrequent rages.
+This project exists because I was foolishly trying to find a way to insulate my computer from destruction by rogue AI agents when running (e.g.) Claude Code with `--dangerously-skip-permissions` (to avoid frequent "do you want to proceed?" dialogs), when perhaps I should have simply learned to accept their infrequent rages.
 
-I experimented with running Claude Code inside docker and podman containers (i.e. in Linux), but as my goal ultimate is to build apps using Xcode, I wanted to stick with OSX.
+I experimented with running AI agents inside docker and podman containers (i.e. in Linux), but as my goal ultimate is to build apps using Xcode, I wanted to stick with OSX.
 
 I considered using xtool, but instead went down a different rabbit hole and tried providing the containers with limited access from the guest OS to my host computer using GNU Rush (Remote User SHell). This worked but was limiting.
 
-I then tried limiting Claude Code's filesystem access using exec-sandbox, and it works in a "proof-of-concept" sort of way, but the attack surface area was too large. I expect I'll come back to this because sandboxing is quite interesting all by itself.
+I then tried limiting filesystem access using exec-sandbox, and it works in a "proof-of-concept" sort of way, but the attack surface area was too large. I expect I'll come back to this because sandboxing is quite interesting all by itself.
 
 Eventually I settled on running the whole thing inside a virtual machine, which is probably where I should have started.
 
@@ -86,7 +94,7 @@ In any event, this project is the result. Hope you like it.
 
 # Alternatives
 
-- [SandVault](https://github.com/webcoyote/sandvault) runs Claude Code in a limited user account on macOS.
+- [SandVault](https://github.com/webcoyote/sandvault) runs AI agents in a limited user account on macOS.
 - [Chamber](https://github.com/cirruslabs/chamber) is a proof-of-concept app for running Claude Code inside a macOS virtual machine.
 - [Claude Code Sandbox](https://github.com/textcortex/claude-code-sandbox) runs Claude Code in a Docker container (Linux)
 

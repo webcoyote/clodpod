@@ -54,18 +54,6 @@ security unlock-keychain -p '' "$LOGIN_KEYCHAIN"
 
 
 ###############################################################################
-# Install claude
-###############################################################################
-if command -v npm &>/dev/null ; then
-    if [[ ! -x "$HOME/node_modules/.bin/claude" ]]; then
-        cd "$HOME"
-        debug "Installing claude..."
-        npm install --silent @anthropic-ai/claude-code@latest
-    fi
-fi
-
-
-###############################################################################
 # Xcode
 ###############################################################################
 # It's really useful to be able to run XCode inside clodpod, especially with
