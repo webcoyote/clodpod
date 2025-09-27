@@ -10,11 +10,13 @@ Any zsh configuration files in `user` will be sourced as they are normally:
 
 All files will be copied to the `$HOME` directory during setup.
 
-Run `clod --rebuild-dst run` to rebuild after making changes in the user directory (only needs to be done once).
+Run `clod --rebuild-dst` to rebuild after making changes in the user directory (only needs to be done once).
 
 
 ## Build process
 
 To speed up building virtual machines, this project creates a base image (`clodpod-xcode-base`) that contains common software packages, then creates the destination image (`clodpod-xcode`), which includes configuration files.
 
-If you add or modify config files in the `user` directory, rebuild the destination image with `clod --rebuild-dst run`. Because this builds from the base image it's a fast operation.
+If you add or modify config files in the `user` directory, rebuild the destination image with `clod --rebuild-dst`. Because this builds from the base image it's a fast operation.
+
+If there are extensive changes to (brew) software packages, you can rebuild the base image with `clod --rebuild-base` to speed up future rebuilds.

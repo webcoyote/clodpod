@@ -370,14 +370,13 @@ show_help() {
     echo "  --version            Show version information"
     echo ""
     echo "Commands:"
-    echo "  r, run [PATH] [NAME]    Run virtual machine with claude"
-    echo "  c, claude [PATH] [NAME] Run virtual machine with claude"
-    echo "  s, shell [PATH] [NAME]  Run virtual machine with shell"
-    echo "  p, stop                 Stop running all clodpod virtual machines"
-    echo "  l, list                 List all projects"
-    echo "  a, add PATH [NAME]      Add a new project (name defaults to basename of path)"
-    echo "  r, remove <identifier>  Remove project by name or path"
-    exit 0
+    echo "  cl, claude [PATH] [NAME]  Run Claude Code"
+    echo "  s,  shell  [PATH] [NAME]  Run zsh shell"
+    echo "  a,  add PATH [NAME]       Add a new project"
+    echo "  rm, remove <identifier>   Remove project by name or path"
+    echo "  ls, list                  List all projects"
+    echo "      start                 Start virtual machine"
+    echo "      stop                  Stop virtual machine"
 }
 
 # Parse optional arguments
@@ -410,6 +409,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             show_help
+            exit 0
             ;;
         --version)
             show_version
@@ -426,20 +426,22 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${NEW_ARGS[@]}"
 
-
 # Parse fixed arguments
 case "${1:-}" in
-    claude|c|run|r)
+    claude|cl|c)
         COMMAND=claude
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
         ;;
-    shell|s)
+    shell|sh|s)
         unset COMMAND
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
         ;;
-    stop|p)
+    start)
+        COMMAND=start
+        ;;
+    stop)
         stop_all_vms
         exit 0
         ;;
@@ -456,7 +458,14 @@ case "${1:-}" in
         exit 0
         ;;
     *)
-        show_help
+        # Handle the special case that user asked for rebuild but
+        # did not specify a command. We'd like to do something
+        # nicer than just exit
+        if [[ -z "${REBUILD_BASE:-}" ]] && [[ -z "${REBUILD_DST:-}" ]]; then
+            show_help
+            exit 0
+        fi
+        COMMAND=start
         ;;
 esac
 
@@ -476,7 +485,7 @@ else
     IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
         projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
     if [[ -z "${ARG_DIR:-}" ]]; then
-        info "Using project $PROJECT ($PROJECT_DIR)"
+        info "Active project: $PROJECT ($PROJECT_DIR)"
     fi
 fi
 
@@ -614,8 +623,9 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     debug "Building $DST_VM_NAME successful"
 fi
 
+
 ###############################################################################
-# Run the application
+# start the application
 ###############################################################################
 # kitty doesn't set this properly :(
 TERM_PROGRAM="${TERM_PROGRAM:-e.g. ghostty, kitty, iTerm, WezTerm}"
@@ -643,6 +653,11 @@ elif ! check_projects_active ; then
     [[ "$response" =~ ^[Yy]$ ]] || exit 0
     stop_vm "$DST_VM_NAME"
     run_vm "$DST_VM_NAME"
+fi
+
+if [[ "${COMMAND:-}" == "start" ]]; then
+    info "clodpod VM running"
+    exit 0
 fi
 
 debug "Checking $DST_VM_NAME IP connectivity"

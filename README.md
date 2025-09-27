@@ -24,21 +24,27 @@ Usage:
     # Create an alias for clod or add it to your path
     alias clod="$HOME/projects/clodpod/clod"
     # - or -
+    alias clod="$HOME/projects/clodpod/clod --no-graphics"
+    # - or -
     PATH="$PATH:"$HOME/projects/clodpod"
 
-    # Run clod from any of your project directories
+    # Note: for the first run you'll want to start in the project directory,
+    # which will get remembered. Use add/remove for changing projects.
     cd "YOUR PROJECT DIRECTORY"
-    clod run
-    # also "clod r", "clod claude", or "clod c"
 
-    # Or run a command shell
-    cd "ANOTHER PROJECT DIRECTORY"
+    # Run Claude Code
+    clod claude
+    # also "clod c" or "clod cl"
+
+    # Or a command shell
     clod shell
     # also "clod s"
 
+    # Start virtual machine (useful for utilizing Virtual Machine GUI apps)
+    clod start
+
     # Stop all clodpod virtual machines
     clod stop
-    # also "clod p"
 
     # Add/remove/list projects
     clod add "THIRD PROJECT DIRECTORY"          # also "clod a ..."
