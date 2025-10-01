@@ -1,5 +1,8 @@
 # .zshrc
 
+# Ensure current directory is readable
+[[ -r "$PWD" ]] || cd "$HOME"
+
 #export PROMPT="%n@%m %~ %# "
 export PROMPT="%F{magenta}%n %F{blue}%~%f %# "
 
