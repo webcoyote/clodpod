@@ -298,7 +298,7 @@ EOF
     if [[ -n "$result" ]]; then
         while IFS='|' read -r name path; do
             if [[ ! -d "$path" ]]; then
-                abort "Directory '$path' does not exist; use ${BASH_SOURCE[0]} remove '$name'"
+                abort "Directory '$path' does not exist\nTry: clod remove '$name'"
             fi
             arr+=("--dir" "${name}:${path}")
         done <<< "$result"
@@ -356,10 +356,10 @@ init_db
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 
 show_help() {
-    appname=$(basename "${BASH_SOURCE[0]}")
-    echo "Usage: $appname [options] command [args...]"
+    echo "Usage: clod [options] command [args...]"
     echo ""
     echo "Options:"
+    echo "  --graphics           Run virtual machine with graphics (default)"
     echo "  --no-graphics        Run virtual machine without graphics"
     echo "  --rebuild-base       Force rebuild of the base image (brew update)"
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
@@ -393,6 +393,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -vvv)
             ((VERBOSE+=3)) || true
+            shift
+            ;;
+        --graphics)
+            NO_GRAPHICS=
             shift
             ;;
         --no-graphics)
