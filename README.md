@@ -60,6 +60,15 @@ Usage:
     clod list                                   # also "clod l", "clod ls"
 
 
+## macOS versions
+
+By default ClodPod uses the `ghcr.io/cirruslabs/macos-tahoe-xcode:latest` VM flavor, but this is configurable by setting the MACOS_VERSION and MACOS_FLAVOR environment variables when building the VM:
+
+    MACOS_VERSION=sequoia MACOS_FLAVOR=vanilla clod shell
+
+See the [cirrus packages page on Github](https://github.com/orgs/cirruslabs/packages?tab=packages&q=macos-) to see the available alternatives.
+
+
 ## Setup notes
 
 By default the guest CPU count is set to be identical to the host system, and guest memory to `5/8 * host memory` (NOTE1) to provide resources for compiling projects in Xcode.

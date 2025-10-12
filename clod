@@ -7,13 +7,10 @@ WORKSPACE="$(realpath "$SCRIPT_DIR")"
 
 
 ###############################################################################
-# Definitions
+# Overrides
 ###############################################################################
-VERSION="1.0.6"
-MACOS_IMAGE="ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
-BASE_VM_NAME="clodpod-xcode-base"
-DST_VM_NAME="clodpod-xcode"
-DB_FILE="$WORKSPACE/.clodpod.sqlite"
+MACOS_VERSION="${MACOS_VERSION:-tahoe}"
+MACOS_FLAVOR="${MACOS_FLAVOR:-xcode}"
 
 
 ###############################################################################
@@ -50,6 +47,43 @@ fi
 if [[ ! -f "$HOME/.claude.json" ]]; then
     abort "ERROR: missing '$HOME/.claude.json'"
 fi
+
+# https://github.com/orgs/cirruslabs/packages?tab=packages&q=macos-
+declare -A MACOS_VERSIONS
+MACOS_VERSIONS[tahoe]=1
+MACOS_VERSIONS[sequoia]=1
+MACOS_VERSIONS[sonoma]=1
+MACOS_VERSIONS[ventura]=1
+MACOS_VERSIONS[monterey]=1
+
+declare -A MACOS_FLAVORS
+MACOS_FLAVORS[vanilla]=1
+MACOS_FLAVORS[base]=1
+MACOS_FLAVORS[xcode]=1
+
+# Convert to lowercase
+MACOS_VERSION="${MACOS_VERSION,,}"
+MACOS_FLAVOR="${MACOS_FLAVOR,,}"
+
+# Validate
+if [[ -z "${MACOS_VERSIONS[$MACOS_VERSION]:-}" ]]; then
+    abort "Unknown MACOS_VERSION $MACOS_VERSION; try ${!MACOS_VERSIONS[*]}"
+fi
+if [[ -z "${MACOS_FLAVORS[$MACOS_FLAVOR]:-}" ]]; then
+    abort "Unknown MACOS_FLAVOR $MACOS_FLAVOR; try ${!MACOS_FLAVORS[*]}"
+fi
+
+
+###############################################################################
+# Definitions
+###############################################################################
+VERSION="1.0.6"
+BASE_VM_NAME="clodpod-xcode-base"
+DST_VM_NAME="clodpod-xcode"
+DB_FILE="$WORKSPACE/.clodpod.sqlite"
+
+MACOS_IMAGE="ghcr.io/cirruslabs/macos-$MACOS_VERSION-$MACOS_FLAVOR:latest"
+debug "MacOS image: $MACOS_IMAGE"
 
 
 ###############################################################################
