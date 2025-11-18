@@ -157,8 +157,11 @@ sudo dscl . -passwd /Users/clodpod "$RANDOM_PASS"
 sudo dscl . -create /Users/clodpod IsHidden 1  # Hide from login window
 
 # Let's allow the user to login as this user if they want
-#sudo dscl . -create /Users/clodpod IsHidden 0
-#sudo dscl . -passwd /Users/clodpod "clodpod"
+sudo dscl . -create /Users/clodpod IsHidden 0
+sudo dscl . -passwd /Users/clodpod "clodpod"
+
+# Make the clodpod user an administrator
+sudo dseditgroup -o edit -a clodpod -t user admin
 
 # Now add only to the SSH access group (required for SSH login)
 # do not use sudo dscl; it creates duplicate entries when run more than once
