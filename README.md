@@ -1,3 +1,11 @@
+<div align="center" id="clodpod">
+<a href="https://github.com/webcoyote/clodpod" title="clodpod">
+  <img src="./assets/icon.jpg" alt="Clodpod Banner" width="128">
+</a>
+</div>
+
+---
+
 # ClodPod - Run AI agents in a macOS VM sandbox
 
 ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
