@@ -45,7 +45,7 @@ else
 fi
 
 # Perform sandvault setup
-"$HOME/configure"
+"$HOME/guest-setup"
 
 # Use GNU CLI binaries over outdated OSX CLI binaries
 if command -v brew &>/dev/null ; then
@@ -66,9 +66,6 @@ fi
 
 # Add clodpod and user bin directories
 export PATH="$HOME/bin:$PATH"
-if [[ -d "$HOME/user/bin" ]]; then
-    export PATH="$HOME/user/bin:$PATH"
-fi
 
 
 ###############################################################################

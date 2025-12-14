@@ -98,5 +98,8 @@ if [[ -d "$USER_DIR" ]]; then
         --exclude='.zshrc' \
         --exclude='.zlogin' \
         --exclude='.zlogout' \
+        --exclude='bin/claude' \
+        --exclude='bin/codex' \
+        --exclude='bin/gemini' \
         "$USER_DIR/" "$HOME/" 2>/dev/null
 fi

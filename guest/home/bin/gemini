@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [[ ! -x "$HOME/node_modules/bin/gemini" ]]; then
+APP="$(brew --prefix)/bin/gemini"
+if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing gemini..."
     npm install --global --silent @google/gemini-cli
 fi
-
-exec "$HOME/node_modules/bin/gemini" "$@"
+exec "$APP" --yolo "$@"
