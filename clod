@@ -49,28 +49,32 @@ if [[ ! -f "$HOME/.claude.json" ]]; then
 fi
 
 # https://github.com/orgs/cirruslabs/packages?tab=packages&q=macos-
-declare -A MACOS_VERSIONS
-MACOS_VERSIONS[tahoe]=1
-MACOS_VERSIONS[sequoia]=1
-MACOS_VERSIONS[sonoma]=1
-MACOS_VERSIONS[ventura]=1
-MACOS_VERSIONS[monterey]=1
+VALID_MACOS_VERSIONS="tahoe sequoia sonoma ventura monterey"
+VALID_MACOS_FLAVORS="vanilla base xcode"
 
-declare -A MACOS_FLAVORS
-MACOS_FLAVORS[vanilla]=1
-MACOS_FLAVORS[base]=1
-MACOS_FLAVORS[xcode]=1
-
-# Convert to lowercase
-MACOS_VERSION="${MACOS_VERSION,,}"
-MACOS_FLAVOR="${MACOS_FLAVOR,,}"
+# Convert to lowercase (bash 3.2 compatible)
+MACOS_VERSION=$(echo "$MACOS_VERSION" | tr '[:upper:]' '[:lower:]')
+MACOS_FLAVOR=$(echo "$MACOS_FLAVOR" | tr '[:upper:]' '[:lower:]')
 
 # Validate
-if [[ -z "${MACOS_VERSIONS[$MACOS_VERSION]:-}" ]]; then
-    abort "Unknown MACOS_VERSION $MACOS_VERSION; try ${!MACOS_VERSIONS[*]}"
+is_valid_version() {
+    case " $VALID_MACOS_VERSIONS " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+is_valid_flavor() {
+    case " $VALID_MACOS_FLAVORS " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if ! is_valid_version "$MACOS_VERSION"; then
+    abort "Unknown MACOS_VERSION $MACOS_VERSION; try $VALID_MACOS_VERSIONS"
 fi
-if [[ -z "${MACOS_FLAVORS[$MACOS_FLAVOR]:-}" ]]; then
-    abort "Unknown MACOS_FLAVOR $MACOS_FLAVOR; try ${!MACOS_FLAVORS[*]}"
+if ! is_valid_flavor "$MACOS_FLAVOR"; then
+    abort "Unknown MACOS_FLAVOR $MACOS_FLAVOR; try $VALID_MACOS_FLAVORS"
 fi
 
 
@@ -165,7 +169,9 @@ run_vm () {
 
     # Get directories to map into the VM
     local args=()
-    get_map_directories args
+    while IFS= read -r -d '' arg; do
+        args+=("$arg")
+    done < <(get_map_directories)
     [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
 
     tart run \
@@ -312,13 +318,10 @@ SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active, date
 EOF
 }
 
-# Get all projects as bash array with --dir format
-# Usage: get_map_directories ARRAY_NAME
-# Populates the named array with entries like: "--dir" "name:path"
+# Get all projects as NUL-delimited --dir arguments
+# Usage: while IFS= read -r -d '' arg; do args+=("$arg"); done < <(get_map_directories)
+# Outputs NUL-delimited entries like: "--dir" NUL "name:path" NUL
 get_map_directories() {
-    local -n arr="$1"
-    arr=()
-
     local result
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
 SELECT name, path FROM projects ORDER BY date_added DESC;
@@ -327,14 +330,14 @@ EOF
 
     # Always map the guest directory into the VM as "__install"
     # so install/configure scripts are available during build
-    arr+=("--dir" "__install:$WORKSPACE/guest")
+    printf '%s\0' "--dir" "__install:$WORKSPACE/guest"
 
     if [[ -n "$result" ]]; then
         while IFS='|' read -r name path; do
             if [[ ! -d "$path" ]]; then
                 abort "Directory '$path' does not exist\nTry: clod remove '$name'"
             fi
-            arr+=("--dir" "${name}:${path}")
+            printf '%s\0' "--dir" "${name}:${path}"
         done <<< "$result"
     fi
 }
@@ -462,7 +465,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-set -- "${NEW_ARGS[@]}"
+
+# bash 3.2 treats empty arrays as unbound even when initialized.
+# With set -u enabled, "${NEW_ARGS[@]}" fails if the array is empty.
+# The fix is to use ${array[@]+"${array[@]}"} which only expands if the array has elements.
+set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 
 # Parse fixed arguments
 case "${1:-}" in
