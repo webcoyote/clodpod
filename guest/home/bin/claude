@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP="$(brew --prefix)/bin/claude"
+APP="$HOME/.local/bin/claude"
 if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing claude..."
-    npm install --global --silent @anthropic-ai/claude-code@latest
+    curl -fsSL https://claude.ai/install.sh | sh
 fi
 exec "$APP" --dangerously-skip-permissions "$@"

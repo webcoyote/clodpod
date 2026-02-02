@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP="$(brew --prefix)/bin/codex"
+APP="$HOME/node_modules/bin/codex"
 if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing codex..."
     npm install --global --silent @openai/codex@latest
