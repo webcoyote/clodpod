@@ -47,25 +47,27 @@ fi
 # Perform sandvault setup
 "$HOME/guest-setup"
 
-# Use GNU CLI binaries over outdated OSX CLI binaries
+# Use GNU binaries over outdated OSX CLI binaries
 if command -v brew &>/dev/null ; then
     BREW_PREFIX="$(brew --prefix)"
     if [[ -d "$BREW_PREFIX/opt/coreutils/libexec/gnubin" ]]; then
-        export PATH="$BREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
+        path=("$BREW_PREFIX/opt/coreutils/libexec/gnubin" $path)
     fi
     if [[ -d "$BREW_PREFIX/opt/findutils/libexec/gnubin" ]]; then
-        export PATH="$BREW_PREFIX/opt/findutils/libexec/gnubin:$PATH"
+        path=("$BREW_PREFIX/opt/findutils/libexec/gnubin" $path)
     fi
     if [[ -d "$BREW_PREFIX/opt/gnu-getopt/bin" ]]; then
-        export PATH="$BREW_PREFIX/opt/gnu-getopt/bin:$PATH"
+        path=("$BREW_PREFIX/opt/gnu-getopt/bin" $path)
     fi
     if [[ -d "$BREW_PREFIX/opt/python/libexec/bin" ]]; then
-        export PATH="$BREW_PREFIX/opt/python/libexec/bin:$PATH"
+        path=("$BREW_PREFIX/opt/python/libexec/bin" $path)
     fi
 fi
 
-# Add clodpod and user bin directories
-export PATH="$HOME/bin:$PATH"
+# Add bin directories
+path=("$HOME/.local/bin" $path)
+path=("$HOME/bin" $path)
+export PATH
 
 
 ###############################################################################
