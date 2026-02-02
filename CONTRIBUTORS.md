@@ -19,4 +19,7 @@ Please ensure your contributions align with the project's goals of providing a r
 
 ## Acknowledgments
 
-Special thanks to all who have provided feedback, bug reports, and suggestions for improving ClodPod.
+Special thanks to all who have provided feedback, bug reports, and suggestions for improving ClodPod:
+
+- Taytay
+- statico
