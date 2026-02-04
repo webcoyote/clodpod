@@ -81,7 +81,7 @@ fi
 ###############################################################################
 # Definitions
 ###############################################################################
-VERSION="1.0.8"
+VERSION="1.0.9"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
