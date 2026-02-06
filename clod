@@ -294,7 +294,7 @@ remove_project() {
         error "Error: Project name or path required to remove project"
         return 1
     fi
-    path="$(realpath "$identifier")"
+    path="$(realpath "$identifier" 2>/dev/null || echo ">not found<")"
 
     # Try to remove by name first, then by path
     local rows_affected
