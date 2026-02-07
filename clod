@@ -259,20 +259,22 @@ EOF
 }
 
 add_project () {
-    local path="${1:-}"
+    local patharg="${1:-}"
     local name="${2:-}"
 
-    if [[ -z "$path" ]]; then
+    if [[ -z "$patharg" ]]; then
         error "Error: path is required to add project"
         return 1
     fi
+
+    local path
+    path="$(realpath "$patharg" 2>/dev/null || true)"
     if [[ ! -d "$path" ]]; then
-        error "Error: directory not found ($path)"
+        error "Error: directory not found ($patharg)"
         return 1
     fi
 
     # Use basename of path if name not provided
-    path="$(realpath "$path")"
     if [[ -z "$name" ]]; then
         name="$(basename "$path")"
     fi
@@ -294,7 +296,7 @@ remove_project() {
         error "Error: Project name or path required to remove project"
         return 1
     fi
-    path="$(realpath "$identifier" 2>/dev/null || echo ">not found<")"
+    path="$(realpath "$identifier" 2>/dev/null || echo "")"
 
     # Try to remove by name first, then by path
     local rows_affected
@@ -408,6 +410,8 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  cl, claude [PATH] [NAME]  Run Claude Code"
+    echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
+    echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
     echo "  s,  shell  [PATH] [NAME]  Run zsh shell"
     echo "  a,  add PATH [NAME]       Add a new project"
     echo "  rm, remove <identifier>   Remove project by name or path"
