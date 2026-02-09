@@ -623,6 +623,22 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     chmod 600 "$GUEST_AUTHORIZED_KEYS"
 fi
 
+# https://github.com/webcoyote/clodpod/issues/5
+# Starting & stopping many VMs causes a DHCP IP address shortage.
+#
+# Tart recommends: You might want to reduce the default DHCP lease time
+# from 86,400 to 600 seconds to avoid DHCP shortage when running lots of VMs daily:
+# https://tart.run/faq/#changing-the-default-dhcp-lease-time
+#
+# Update Internet Sharing's DHCP lease time via SystemConfiguration prefs.
+DHCP_PREFS="/Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist"
+CURRENT_LEASE=$(/usr/libexec/PlistBuddy -c "Print :bootpd:DHCPLeaseTimeSecs" "$DHCP_PREFS" 2>/dev/null || true)
+if [[ "$CURRENT_LEASE" != "600" ]]; then
+    sudo /usr/bin/defaults write "$DHCP_PREFS" bootpd -dict DHCPLeaseTimeSecs -int 600
+    sudo /bin/launchctl stop com.apple.InternetSharing || true
+    sudo /bin/launchctl start com.apple.InternetSharing || true
+fi
+
 
 ###############################################################################
 # Create Base VM
