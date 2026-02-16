@@ -81,7 +81,7 @@ fi
 ###############################################################################
 # Definitions
 ###############################################################################
-VERSION="1.0.11"
+VERSION="1.0.12"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
@@ -320,6 +320,183 @@ SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active, date
 EOF
 }
 
+select_project() {
+    local result
+    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
+SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active
+FROM projects
+ORDER BY date_added DESC;
+EOF
+)
+
+    if [[ -z "$result" ]]; then
+        error "Error: No projects available"
+        return 2
+    fi
+
+    local names=()
+    local paths=()
+    local states=()
+    while IFS='|' read -r name path active; do
+        names+=("$name")
+        paths+=("$path")
+        states+=("$active")
+    done <<< "$result"
+
+    local count="${#names[@]}"
+    local input_fd=3
+    local output_fd=3
+    local tty_fd_open=0
+    if exec 3<>/dev/tty 2>/dev/null; then
+        tty_fd_open=1
+    else
+        error "Error: Interactive project selection requires a terminal"
+        return 2
+    fi
+
+    local selected=0
+    local i=0
+    local term_cols=120
+    if command -v tput &>/dev/null; then
+        local detected_cols
+        detected_cols="$(tput cols 2>/dev/null || true)"
+        if [[ "${detected_cols:-}" =~ ^[0-9]+$ ]] && [[ "$detected_cols" -gt 20 ]]; then
+            term_cols="$detected_cols"
+        fi
+    fi
+    while [[ "$i" -lt "$count" ]]; do
+        if [[ "${states[$i]}" == "yes" ]]; then
+            selected="$i"
+            break
+        fi
+        i=$((i + 1))
+    done
+
+    local rendered_lines=0
+    render_menu() {
+        local up=0
+        while [[ "$up" -lt "$rendered_lines" ]]; do
+            printf >&"$output_fd" "\033[1A"
+            up=$((up + 1))
+        done
+        if [[ "$rendered_lines" -gt 0 ]]; then
+            printf >&"$output_fd" "\033[J"
+        fi
+
+        printf >&"$output_fd" "Select active project:\n\n"
+        rendered_lines=2
+
+        local idx=0
+        while [[ "$idx" -lt "$count" ]]; do
+            local marker="  "
+            if [[ "$idx" -eq "$selected" ]]; then
+                marker="> "
+            fi
+            local line
+            line=$(printf "%s%d) %s (%s) [active=%s]" "$marker" "$((idx + 1))" "${names[$idx]}" "${paths[$idx]}" "${states[$idx]}")
+            if [[ "${#line}" -gt "$term_cols" ]]; then
+                if [[ "$term_cols" -gt 4 ]]; then
+                    line="${line:0:$((term_cols - 3))}..."
+                else
+                    line="${line:0:$term_cols}"
+                fi
+            fi
+            printf >&"$output_fd" "%s\n" "$line"
+            rendered_lines=$((rendered_lines + 1))
+            idx=$((idx + 1))
+        done
+        printf >&"$output_fd" "\nUse up/down to select, Enter to confirm, q to cancel\n"
+        rendered_lines=$((rendered_lines + 2))
+    }
+
+    local esc_seq=""
+    render_menu
+    while true; do
+
+        local old_selected="$selected"
+        local key
+        local ch
+        key=""
+        ch=""
+        IFS= read -r -s -n 1 ch <&"$input_fd"
+
+        if [[ -n "$esc_seq" ]]; then
+            esc_seq+="$ch"
+            local esc_last
+            esc_last="${esc_seq:${#esc_seq}-1:1}"
+            case "$esc_last" in
+                [A-Za-z~])
+                    key="$esc_seq"
+                    esc_seq=""
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        else
+            if [[ "$ch" == $'\x1b' ]]; then
+                esc_seq="$ch"
+                continue
+            fi
+            key="$ch"
+        fi
+
+        local key_last=""
+        if [[ -n "$key" ]]; then
+            key_last="${key:${#key}-1:1}"
+        fi
+
+        if [[ "$key" == "j" ]] || [[ "$key" == "J" ]] || [[ "$key" == "w" ]] || [[ "$key" == "W" ]] || \
+           [[ "$key" == *"[A" ]] || [[ "$key" == *"OA" ]] || \
+           { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "A" ]]; }; then
+                if [[ "$selected" -gt 0 ]]; then
+                    selected=$((selected - 1))
+                fi
+        elif [[ "$key" == "k" ]] || [[ "$key" == "K" ]] || [[ "$key" == "s" ]] || [[ "$key" == "S" ]] || \
+             [[ "$key" == *"[B" ]] || [[ "$key" == *"OB" ]] || \
+             { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "B" ]]; }; then
+                if [[ "$selected" -lt "$((count - 1))" ]]; then
+                    selected=$((selected + 1))
+                fi
+        else
+            case "$key" in
+            ""|$'\n'|$'\r')
+                printf >&"$output_fd" "\n"
+                if [[ "$tty_fd_open" -eq 1 ]]; then
+                    exec 3<&-
+                    exec 3>&-
+                fi
+                echo "${names[$selected]}|${paths[$selected]}"
+                return 0
+                ;;
+            q|Q)
+                printf >&"$output_fd" "\n"
+                if [[ "$tty_fd_open" -eq 1 ]]; then
+                    exec 3<&-
+                    exec 3>&-
+                fi
+                return 1
+                ;;
+            esac
+        fi
+
+        if [[ "$selected" -ne "$old_selected" ]]; then
+            render_menu
+        fi
+    done
+}
+
+set_active_project() {
+    local name="$1"
+    local path="$2"
+
+    sqlite3 "$DB_FILE" <<EOF || return 1
+UPDATE projects
+SET date_added = datetime('now')
+WHERE name = '$name' AND path = '$path';
+EOF
+}
+
 # Get all projects as NUL-delimited --dir arguments
 # Usage: while IFS= read -r -d '' arg; do args+=("$arg"); done < <(get_map_directories)
 # Outputs NUL-delimited entries like: "--dir" NUL "name:path" NUL
@@ -481,21 +658,25 @@ case "${1:-}" in
         COMMAND=claude
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
+        INTERACTIVE_PROJECT_COMMAND=true
         ;;
     codex|co)
         COMMAND=codex
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
+        INTERACTIVE_PROJECT_COMMAND=true
         ;;
     gemini|gem|g)
         COMMAND=gemini
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
+        INTERACTIVE_PROJECT_COMMAND=true
         ;;
     shell|sh|s)
         unset COMMAND
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
+        INTERACTIVE_PROJECT_COMMAND=true
         ;;
     start)
         COMMAND=start
@@ -543,8 +724,26 @@ if [[ "$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM projects;" 2>/dev/null)" -eq 0
 else
     IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
         projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
-    if [[ -z "${ARG_DIR:-}" ]]; then
+    if [[ -z "${ARG_DIR:-}" ]] && [[ -z "${INTERACTIVE_PROJECT_COMMAND:-}" ]]; then
         info "Active project: $PROJECT ($PROJECT_DIR)"
+    fi
+fi
+
+if [[ -n "${INTERACTIVE_PROJECT_COMMAND:-}" ]] && [[ -z "${ARG_DIR:-}" ]]; then
+    if selected_project=$(select_project); then
+        IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
+        ARG_DIR="$PROJECT_DIR"
+        set_active_project "$PROJECT" "$PROJECT_DIR"
+        info "Active project: $PROJECT ($PROJECT_DIR)"
+    else
+        selection_rc=$?
+        if [[ "$selection_rc" -eq 1 ]]; then
+            info "Cancelled"
+            exit 1
+        else
+            warn "Interactive project selection unavailable; using active project: $PROJECT ($PROJECT_DIR)"
+            ARG_DIR="$PROJECT_DIR"
+        fi
     fi
 fi
 
