@@ -405,7 +405,7 @@ EOF
             rendered_lines=$((rendered_lines + 1))
             idx=$((idx + 1))
         done
-        printf >&"$output_fd" "\nUse up/down to select, Enter to confirm, q to cancel\n"
+        printf >&"$output_fd" "\nUse up/down to select, Enter to select, Esc to cancel\n"
         rendered_lines=$((rendered_lines + 2))
     }
 
@@ -590,6 +590,7 @@ init_db
 # Parse command line
 ###############################################################################
 NO_GRAPHICS="${NO_GRAPHICS:-}"
+INTERACTIVE_SELECT_PROJECT=false
 
 show_help() {
     echo "Usage: clod [options] command [args...]"
@@ -678,25 +679,25 @@ case "${1:-}" in
         COMMAND=claude
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_PROJECT_COMMAND=true
+        INTERACTIVE_SELECT_PROJECT=true
         ;;
     codex|co)
         COMMAND=codex
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_PROJECT_COMMAND=true
+        INTERACTIVE_SELECT_PROJECT=true
         ;;
     gemini|gem|g)
         COMMAND=gemini
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_PROJECT_COMMAND=true
+        INTERACTIVE_SELECT_PROJECT=true
         ;;
     shell|sh|s)
         unset COMMAND
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_PROJECT_COMMAND=true
+        INTERACTIVE_SELECT_PROJECT=true
         ;;
     start)
         COMMAND=start
@@ -741,15 +742,16 @@ if [[ "$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM projects;" 2>/dev/null)" -eq 0
     PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
     PROJECT="$(basename "$PROJECT_DIR")"
     add_project "$PROJECT_DIR" "$PROJECT"
+    INTERACTIVE_SELECT_PROJECT=false
 else
     IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
         projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
-    if [[ -z "${ARG_DIR:-}" ]] && [[ -z "${INTERACTIVE_PROJECT_COMMAND:-}" ]]; then
+    if [[ -z "${ARG_DIR:-}" ]] && [[ -z "$INTERACTIVE_SELECT_PROJECT" ]]; then
         info "Active project: $PROJECT ($PROJECT_DIR)"
     fi
 fi
 
-if [[ -n "${INTERACTIVE_PROJECT_COMMAND:-}" ]] && [[ -z "${ARG_DIR:-}" ]]; then
+if [[ -n "$INTERACTIVE_SELECT_PROJECT" ]] && [[ -z "${ARG_DIR:-}" ]]; then
     if selected_project=$(select_project); then
         IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
         ARG_DIR="$PROJECT_DIR"
