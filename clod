@@ -733,7 +733,9 @@ if [[ -n "${INTERACTIVE_PROJECT_COMMAND:-}" ]] && [[ -z "${ARG_DIR:-}" ]]; then
     if selected_project=$(select_project); then
         IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
         ARG_DIR="$PROJECT_DIR"
-        set_active_project "$PROJECT" "$PROJECT_DIR"
+        if ! set_active_project "$PROJECT" "$PROJECT_DIR"; then
+            warn "Failed to persist selected project ordering for: $PROJECT ($PROJECT_DIR)"
+        fi
         info "Active project: $PROJECT ($PROJECT_DIR)"
     else
         selection_rc=$?
