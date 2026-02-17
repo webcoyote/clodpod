@@ -435,10 +435,27 @@ EOF
             esac
         else
             if [[ "$ch" == $'\x1b' ]]; then
-                esc_seq="$ch"
-                continue
+                # Treat standalone Escape as cancel, but still allow arrow-key
+                # escape sequences when a follow-up character arrives immediately.
+                if IFS= read -r -s -n 1 -t 0.05 ch <&"$input_fd"; then
+                    esc_seq=$'\x1b'"$ch"
+                    local esc_last
+                    esc_last="${esc_seq:${#esc_seq}-1:1}"
+                    case "$esc_last" in
+                        [A-Za-z~])
+                            key="$esc_seq"
+                            esc_seq=""
+                            ;;
+                        *)
+                            continue
+                            ;;
+                    esac
+                else
+                    key="__escape__"
+                fi
+            else
+                key="$ch"
             fi
-            key="$ch"
         fi
 
         local key_last=""
@@ -469,7 +486,7 @@ EOF
                 echo "${names[$selected]}|${paths[$selected]}"
                 return 0
                 ;;
-            q|Q)
+            q|Q|__escape__)
                 printf >&"$output_fd" "\n"
                 if [[ "$tty_fd_open" -eq 1 ]]; then
                     exec 3<&-
