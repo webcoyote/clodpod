@@ -477,6 +477,9 @@ EOF
                 fi
                 return 1
                 ;;
+            *)
+                # Ignore any unrecognized key input and keep selection unchanged.
+                ;;
             esac
         fi
 
