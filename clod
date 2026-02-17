@@ -446,13 +446,13 @@ EOF
             key_last="${key:${#key}-1:1}"
         fi
 
-        if [[ "$key" == "j" ]] || [[ "$key" == "J" ]] || [[ "$key" == "w" ]] || [[ "$key" == "W" ]] || \
+        if [[ "$key" == "k" ]] || [[ "$key" == "K" ]] || [[ "$key" == "w" ]] || [[ "$key" == "W" ]] || \
            [[ "$key" == *"[A" ]] || [[ "$key" == *"OA" ]] || \
            { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "A" ]]; }; then
                 if [[ "$selected" -gt 0 ]]; then
                     selected=$((selected - 1))
                 fi
-        elif [[ "$key" == "k" ]] || [[ "$key" == "K" ]] || [[ "$key" == "s" ]] || [[ "$key" == "S" ]] || \
+        elif [[ "$key" == "j" ]] || [[ "$key" == "J" ]] || [[ "$key" == "s" ]] || [[ "$key" == "S" ]] || \
              [[ "$key" == *"[B" ]] || [[ "$key" == *"OB" ]] || \
              { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "B" ]]; }; then
                 if [[ "$selected" -lt "$((count - 1))" ]]; then
