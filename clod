@@ -388,12 +388,12 @@ EOF
 
         local idx=0
         while [[ "$idx" -lt "$count" ]]; do
-            local marker="  "
+            local marker=" "
             if [[ "$idx" -eq "$selected" ]]; then
-                marker="> "
+                marker=">"
             fi
             local line
-            line=$(printf "%s%d) %s (%s) [active=%s]" "$marker" "$((idx + 1))" "${names[$idx]}" "${paths[$idx]}" "${states[$idx]}")
+            line=$(printf "%s %s (%s) [active=%s]" "$marker" "${names[$idx]}" "${paths[$idx]}" "${states[$idx]}")
             if [[ "${#line}" -gt "$term_cols" ]]; then
                 if [[ "$term_cols" -gt 4 ]]; then
                     line="${line:0:$((term_cols - 3))}..."
