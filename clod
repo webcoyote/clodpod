@@ -590,7 +590,7 @@ init_db
 # Parse command line
 ###############################################################################
 NO_GRAPHICS="${NO_GRAPHICS:-}"
-INTERACTIVE_SELECT_PROJECT=false
+SHOULD_SELECT_PROJECT=true
 
 show_help() {
     echo "Usage: clod [options] command [args...]"
@@ -600,6 +600,7 @@ show_help() {
     echo "  --no-graphics        Run virtual machine without graphics"
     echo "  --rebuild-base       Force rebuild of the base image (brew update)"
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
+    echo "  -n|--no-select       Disable interactive project selection"
     echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
     echo "  -vv                  Set verbosity level 2"
     echo "  -vvv                 Set verbosity level 3"
@@ -650,6 +651,10 @@ while [[ $# -gt 0 ]]; do
             REBUILD_DST=true
             shift
             ;;
+        -n|--no-select)
+            SHOULD_SELECT_PROJECT=false
+            shift
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -679,25 +684,21 @@ case "${1:-}" in
         COMMAND=claude
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_SELECT_PROJECT=true
         ;;
     codex|co)
         COMMAND=codex
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_SELECT_PROJECT=true
         ;;
     gemini|gem|g)
         COMMAND=gemini
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_SELECT_PROJECT=true
         ;;
     shell|sh|s)
         unset COMMAND
         ARG_DIR="${2:-}"
         ARG_NAME="${3:-}"
-        INTERACTIVE_SELECT_PROJECT=true
         ;;
     start)
         COMMAND=start
@@ -733,43 +734,44 @@ esac
 # Add project if requested
 if [[ -n "${ARG_DIR:-}" ]]; then
     add_project "$ARG_DIR" "$ARG_NAME"
+    SHOULD_SELECT_PROJECT=false
 fi
 
-# If no projects exist then add the current directory as a project
-if [[ "$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM projects;" 2>/dev/null)" -eq 0 ]]; then
+# Get most recent project. If none exists then add the current directory as a project.
+IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
+    projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
+if [[ -z "${PROJECT_DIR:-}" ]]; then
     # Try to set the project directory to the top-level directory of the git repository
     # to minimize the number of directories that get mapped into the virtual machine.
     PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
     PROJECT="$(basename "$PROJECT_DIR")"
     add_project "$PROJECT_DIR" "$PROJECT"
-    INTERACTIVE_SELECT_PROJECT=false
-else
-    IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
-        projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
-    if [[ -z "${ARG_DIR:-}" ]] && [[ -z "$INTERACTIVE_SELECT_PROJECT" ]]; then
-        info "Active project: $PROJECT ($PROJECT_DIR)"
-    fi
+    SHOULD_SELECT_PROJECT=false
 fi
 
-if [[ -n "$INTERACTIVE_SELECT_PROJECT" ]] && [[ -z "${ARG_DIR:-}" ]]; then
-    if selected_project=$(select_project); then
+if [[ "$SHOULD_SELECT_PROJECT" == "true" ]]; then
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        warn "Interactive project selection disabled (no TTY); using active project"
+        ARG_DIR="$PROJECT_DIR"
+    elif selected_project=$(select_project); then
         IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
         ARG_DIR="$PROJECT_DIR"
         if ! set_active_project "$PROJECT" "$PROJECT_DIR"; then
             warn "Failed to persist selected project ordering for: $PROJECT ($PROJECT_DIR)"
         fi
-        info "Active project: $PROJECT ($PROJECT_DIR)"
     else
         selection_rc=$?
         if [[ "$selection_rc" -eq 1 ]]; then
             info "Cancelled"
             exit 1
         else
-            warn "Interactive project selection unavailable; using active project: $PROJECT ($PROJECT_DIR)"
+            warn "Interactive project selection unavailable; using active project"
             ARG_DIR="$PROJECT_DIR"
         fi
     fi
 fi
+
+info "Active project: $PROJECT ($PROJECT_DIR)"
 
 
 ###############################################################################
