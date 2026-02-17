@@ -448,8 +448,12 @@ EOF
             if [[ "$idx" -eq "$selected" ]]; then
                 marker=">"
             fi
+            local status=""
+            if [[ "${states[$idx]}" != "yes" ]]; then
+                status=" [inactive]"
+            fi
             local line
-            line=$(printf "%s %s (%s) [active=%s]" "$marker" "${names[$idx]}" "${paths[$idx]}" "${states[$idx]}")
+            line=$(printf "%s %s (%s)%s" "$marker" "${names[$idx]}" "${paths[$idx]}" "$status")
             if [[ "${#line}" -gt "$term_cols" ]]; then
                 if [[ "$term_cols" -gt 4 ]]; then
                     line="${line:0:$((term_cols - 3))}..."
