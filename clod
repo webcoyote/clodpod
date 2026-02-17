@@ -859,6 +859,7 @@ fi
 DHCP_PREFS="/Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist"
 CURRENT_LEASE=$(/usr/libexec/PlistBuddy -c "Print :bootpd:DHCPLeaseTimeSecs" "$DHCP_PREFS" 2>/dev/null || true)
 if [[ "$CURRENT_LEASE" != "600" ]]; then
+    sudo -p "Password required to set DHCP lease time for clodpod (600s): " true
     sudo /usr/bin/defaults write "$DHCP_PREFS" bootpd -dict DHCPLeaseTimeSecs -int 600
     sudo /bin/launchctl stop com.apple.InternetSharing || true
     sudo /bin/launchctl start com.apple.InternetSharing || true
