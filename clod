@@ -320,6 +320,61 @@ SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active, date
 EOF
 }
 
+read_menu_key() {
+    local input_fd="$1"
+    local esc_seq="$2"
+    local key=""
+    local ch=""
+
+    IFS= read -r -s -n 1 ch <&"$input_fd"
+
+    if [[ -n "$esc_seq" ]]; then
+        esc_seq+="$ch"
+        local esc_last
+        esc_last="${esc_seq:${#esc_seq}-1:1}"
+        case "$esc_last" in
+            [A-Za-z~])
+                key="$esc_seq"
+                esc_seq=""
+                ;;
+            *)
+                MENU_KEY=""
+                MENU_ESC_SEQ="$esc_seq"
+                return 1
+                ;;
+        esac
+    else
+        if [[ "$ch" == $'\x1b' ]]; then
+            # Treat standalone Escape as cancel, but still allow arrow-key
+            # escape sequences when a follow-up character arrives immediately.
+            if IFS= read -r -s -n 1 -t 0.05 ch <&"$input_fd"; then
+                esc_seq=$'\x1b'"$ch"
+                local esc_last
+                esc_last="${esc_seq:${#esc_seq}-1:1}"
+                case "$esc_last" in
+                    [A-Za-z~])
+                        key="$esc_seq"
+                        esc_seq=""
+                        ;;
+                    *)
+                        MENU_KEY=""
+                        MENU_ESC_SEQ="$esc_seq"
+                        return 1
+                        ;;
+                esac
+            else
+                key="__escape__"
+            fi
+        else
+            key="$ch"
+        fi
+    fi
+
+    MENU_KEY="$key"
+    MENU_ESC_SEQ="$esc_seq"
+    return 0
+}
+
 select_project() {
     local result
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
@@ -354,8 +409,6 @@ EOF
         return 2
     fi
 
-    local selected=0
-    local i=0
     local term_cols=120
     if command -v tput &>/dev/null; then
         local detected_cols
@@ -364,6 +417,9 @@ EOF
             term_cols="$detected_cols"
         fi
     fi
+
+    local i=0
+    local selected=0
     while [[ "$i" -lt "$count" ]]; do
         if [[ "${states[$i]}" == "yes" ]]; then
             selected="$i"
@@ -413,63 +469,29 @@ EOF
     render_menu
     while true; do
 
+        local key=""
         local old_selected="$selected"
-        local key
-        local ch
-        key=""
-        ch=""
-        IFS= read -r -s -n 1 ch <&"$input_fd"
-
-        if [[ -n "$esc_seq" ]]; then
-            esc_seq+="$ch"
-            local esc_last
-            esc_last="${esc_seq:${#esc_seq}-1:1}"
-            case "$esc_last" in
-                [A-Za-z~])
-                    key="$esc_seq"
-                    esc_seq=""
-                    ;;
-                *)
-                    continue
-                    ;;
-            esac
-        else
-            if [[ "$ch" == $'\x1b' ]]; then
-                # Treat standalone Escape as cancel, but still allow arrow-key
-                # escape sequences when a follow-up character arrives immediately.
-                if IFS= read -r -s -n 1 -t 0.05 ch <&"$input_fd"; then
-                    esc_seq=$'\x1b'"$ch"
-                    local esc_last
-                    esc_last="${esc_seq:${#esc_seq}-1:1}"
-                    case "$esc_last" in
-                        [A-Za-z~])
-                            key="$esc_seq"
-                            esc_seq=""
-                            ;;
-                        *)
-                            continue
-                            ;;
-                    esac
-                else
-                    key="__escape__"
-                fi
-            else
-                key="$ch"
-            fi
+        if ! read_menu_key "$input_fd" "$esc_seq"; then
+            esc_seq="$MENU_ESC_SEQ"
+            continue
         fi
+        key="$MENU_KEY"
+        esc_seq="$MENU_ESC_SEQ"
 
         local key_last=""
         if [[ -n "$key" ]]; then
             key_last="${key:${#key}-1:1}"
         fi
 
-        if [[ "$key" == "k" ]] || [[ "$key" == "K" ]] || [[ "$key" == "w" ]] || [[ "$key" == "W" ]] || \
+        if [[ "$key" == "k" ]] || [[ "$key" == "K" ]] || \
+           [[ "$key" == "w" ]] || [[ "$key" == "W" ]] || \
            [[ "$key" == *"[A" ]] || [[ "$key" == *"OA" ]] || \
            { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "A" ]]; }; then
                 if [[ "$selected" -gt 0 ]]; then
                     selected=$((selected - 1))
                 fi
-        elif [[ "$key" == "j" ]] || [[ "$key" == "J" ]] || [[ "$key" == "s" ]] || [[ "$key" == "S" ]] || \
+        elif [[ "$key" == "j" ]] || [[ "$key" == "J" ]] || \
+             [[ "$key" == "s" ]] || [[ "$key" == "S" ]] || \
              [[ "$key" == *"[B" ]] || [[ "$key" == *"OB" ]] || \
              { [[ "$key" == $'\x1b'* ]] && [[ "$key_last" == "B" ]]; }; then
                 if [[ "$selected" -lt "$((count - 1))" ]]; then
