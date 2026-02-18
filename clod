@@ -345,29 +345,12 @@ read_menu_key() {
         esac
     else
         if [[ "$ch" == $'\x1b' ]]; then
-            # Treat standalone Escape as cancel, but still allow arrow-key
-            # escape sequences when a follow-up character arrives immediately.
-            if IFS= read -r -s -n 1 -t 0.05 ch <&"$input_fd"; then
-                esc_seq=$'\x1b'"$ch"
-                local esc_last
-                esc_last="${esc_seq:${#esc_seq}-1:1}"
-                case "$esc_last" in
-                    [A-Za-z~])
-                        key="$esc_seq"
-                        esc_seq=""
-                        ;;
-                    *)
-                        MENU_KEY=""
-                        MENU_ESC_SEQ="$esc_seq"
-                        return 1
-                        ;;
-                esac
-            else
-                key="__escape__"
-            fi
-        else
-            key="$ch"
+            esc_seq="$ch"
+            MENU_KEY=""
+            MENU_ESC_SEQ="$esc_seq"
+            return 1
         fi
+        key="$ch"
     fi
 
     MENU_KEY="$key"
@@ -465,7 +448,7 @@ EOF
             rendered_lines=$((rendered_lines + 1))
             idx=$((idx + 1))
         done
-        printf >&"$output_fd" "\nUse up/down to select, Enter to select, Esc to cancel\n"
+        printf >&"$output_fd" "\nUse up/down to select, Enter to select, q to cancel\n"
         rendered_lines=$((rendered_lines + 2))
     }
 
@@ -512,7 +495,7 @@ EOF
                 echo "${names[$selected]}|${paths[$selected]}"
                 return 0
                 ;;
-            q|Q|__escape__)
+            q|Q)
                 printf >&"$output_fd" "\n"
                 if [[ "$tty_fd_open" -eq 1 ]]; then
                     exec 3<&-
