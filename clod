@@ -748,7 +748,7 @@ fi
 
 # Get most recent project. If none exists then add the current directory as a project.
 IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
-    projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null)
+    projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null) || true
 if [[ -z "${PROJECT_DIR:-}" ]]; then
     # Try to set the project directory to the top-level directory of the git repository
     # to minimize the number of directories that get mapped into the virtual machine.
