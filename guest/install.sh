@@ -3,6 +3,9 @@ set -Eeuo pipefail
 trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 #SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+ALLOW_SUDO="${ALLOW_SUDO:-false}"
+CLODPOD_PASSWORD="${CLODPOD_PASSWORD:-}"
+
 
 ###############################################################################
 # Functions
@@ -150,20 +153,28 @@ sudo dscl . -create /Users/clodpod RealName "clodpod User"
 sudo dscl . -create /Users/clodpod NFSHomeDirectory "$CLODPOD_HOME"
 sudo dscl . -create /Users/clodpod UserShell "/bin/zsh"
 
-# Set a random password for the user (password required for SSH on macOS)
-# We'll use key-based auth so the password won't actually be used.
-RANDOM_PASS=$(openssl rand -base64 32)
-sudo dscl . -passwd /Users/clodpod "$RANDOM_PASS"
-sudo dscl . -create /Users/clodpod IsHidden 1  # Hide from login window
+# Configure sudo
+if [[ "$ALLOW_SUDO" == "true" ]]; then
+    debug "Enabling sudo access for clodpod user..."
+    sudo dseditgroup -o edit -a clodpod -t user admin
+    echo "clodpod ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/clodpod >/dev/null
+    sudo chmod 440 /etc/sudoers.d/clodpod
+else
+    debug "Disabling sudo access for clodpod user..."
+    sudo dseditgroup -o edit -d clodpod -t user admin || true
+    sudo rm -f /etc/sudoers.d/clodpod
+fi
 
-# Let's allow the user to login as this user if they want
-sudo dscl . -create /Users/clodpod IsHidden 0
-sudo dscl . -passwd /Users/clodpod "clodpod"
+# Configure login and password
+if [[ -n "$CLODPOD_PASSWORD" ]]; then
+    sudo dscl . -create /Users/clodpod IsHidden 0
+else
+    sudo dscl . -create /Users/clodpod IsHidden 1
+    CLODPOD_PASSWORD=$(openssl rand -base64 32)
+fi
+sudo dscl . -passwd /Users/clodpod "$CLODPOD_PASSWORD"
 
-# Make the clodpod user an administrator
-sudo dseditgroup -o edit -a clodpod -t user admin
-
-# Now add only to the SSH access group (required for SSH login)
+# Now add to the SSH access group (required for SSH login)
 # do not use sudo dscl; it creates duplicate entries when run more than once
 sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
 
@@ -185,4 +196,3 @@ for volume in $dmg_volumes; do
         debug "Unable to eject $volume..."
     fi
 done
-

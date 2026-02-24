@@ -244,6 +244,32 @@ CREATE TABLE IF NOT EXISTS projects (
     date_added TEXT DEFAULT (datetime('now')),
     active INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+EOF
+}
+
+get_setting() {
+    local key="$1"
+    local default_value="${2:-}"
+    local value
+    value=$(sqlite3 "$DB_FILE" <<EOF
+SELECT COALESCE((SELECT value FROM settings WHERE key = '$key' LIMIT 1), '$default_value');
+EOF
+)
+    trace "Setting '$key' resolved to '$value'"
+    echo "$value"
+}
+
+set_setting() {
+    local key="$1"
+    local value="$2"
+    sqlite3 "$DB_FILE" <<EOF
+INSERT OR REPLACE INTO settings (key, value, updated_at)
+VALUES ('$key', '$value', datetime('now'));
 EOF
 }
 
@@ -600,6 +626,7 @@ init_db
 ###############################################################################
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 SHOULD_SELECT_PROJECT=true
+ALLOW_SUDO=
 
 show_help() {
     echo "Usage: clod [options] command [args...]"
@@ -609,6 +636,8 @@ show_help() {
     echo "  --no-graphics        Run virtual machine without graphics"
     echo "  --rebuild-base       Force rebuild of the base image (brew update)"
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
+    echo "  --allow-sudo         Allow passwordless sudo for clodpod user (rebuilds if setting changed)"
+    echo "  --no-allow-sudo      Disallow sudo for clodpod user (rebuilds if setting changed)"
     echo "  -n|--no-select       Disable interactive project selection"
     echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
     echo "  -vv                  Set verbosity level 2"
@@ -658,6 +687,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --rebuild-dst)
             REBUILD_DST=true
+            shift
+            ;;
+        --allow-sudo)
+            ALLOW_SUDO=true
+            shift
+            ;;
+        --no-allow-sudo)
+            ALLOW_SUDO=false
             shift
             ;;
         -n|--no-select)
@@ -739,6 +776,15 @@ case "${1:-}" in
         COMMAND=start
         ;;
 esac
+
+# Decide whether sudo-setting changes require rebuild
+STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
+ALLOW_SUDO="${ALLOW_SUDO:-"$STORED_ALLOW_SUDO"}"
+if [[ "$ALLOW_SUDO" != "$STORED_ALLOW_SUDO" ]]; then
+    info "Sudo setting changed ($STORED_ALLOW_SUDO -> $ALLOW_SUDO); forcing base rebuild"
+    REBUILD_BASE=true
+    ALLOW_SUDO="$STORED_ALLOW_SUDO"
+fi
 
 # Add project if requested
 if [[ -n "${ARG_DIR:-}" ]]; then
@@ -892,12 +938,18 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     run_vm "$TMP_VM_NAME"
 
     trace "Running install.sh..."
+    INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=$ALLOW_SUDO" )
+    if [[ -n "${CLODPOD_PASSWORD:-}" ]]; then
+        INSTALL_ENV+=( "CLODPOD_PASSWORD=$CLODPOD_PASSWORD" )
+    fi
+
     tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
+        "${INSTALL_ENV[@]}" bash \
         "/Volumes/My Shared Files/__install/install.sh"
 
     trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
+    set_setting "allow_sudo" "$ALLOW_SUDO"
 
     debug "Building $BASE_VM_NAME successful"
 fi
