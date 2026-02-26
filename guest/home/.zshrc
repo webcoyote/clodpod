@@ -103,6 +103,15 @@ if [[ -d "$PROJECT_DIR" ]]; then
 fi
 
 # Run specified application
+command_args=()
+if [[ -n "${COMMAND_ARGS_B64:-}" ]]; then
+    while IFS= read -r -d '' arg; do
+        command_args+=("$arg")
+    done < <(printf '%s' "$COMMAND_ARGS_B64" | base64 --decode)
+fi
+
 if [[ "${COMMAND:-}" != "" ]]; then
-    exec "$COMMAND"
+    exec "$COMMAND" "${command_args[@]}"
+elif [[ ${#command_args[@]} -gt 0 ]]; then
+    exec "${command_args[@]}"
 fi

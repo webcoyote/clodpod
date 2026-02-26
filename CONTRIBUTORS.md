@@ -24,3 +24,4 @@ Special thanks to all who have provided feedback, bug reports, and suggestions f
 - Taytay
 - statico
 - burakkurkcu
+- tallpsmith

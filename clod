@@ -629,7 +629,7 @@ SHOULD_SELECT_PROJECT=true
 ALLOW_SUDO=
 
 show_help() {
-    echo "Usage: clod [options] command [args...]"
+    echo "Usage: clod [options] command [args...] [-- command-args...]"
     echo ""
     echo "Options:"
     echo "  --graphics           Run virtual machine with graphics (default)"
@@ -655,12 +655,23 @@ show_help() {
     echo "  ls, list                  List all projects"
     echo "      start                 Start virtual machine"
     echo "      stop                  Stop virtual machine"
+    echo ""
+    echo "Arguments after -- are passed to the selected command (claude, codex, gemini, shell)"
 }
 
 # Parse optional arguments
 NEW_ARGS=()
+COMMAND_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do
+                COMMAND_ARGS+=("$1")
+                shift
+            done
+            break
+            ;;
         -v|--verbose)
             ((VERBOSE++)) || true
             shift
@@ -1033,6 +1044,11 @@ fi
 
 debug "Connect to $DST_VM_NAME (ssh clodpod@$IPADDR)"
 
+COMMAND_ARGS_B64=""
+if [[ ${#COMMAND_ARGS[@]} -gt 0 ]]; then
+    COMMAND_ARGS_B64="$(printf '%s\0' "${COMMAND_ARGS[@]}" | base64 | tr -d '\n')"
+fi
+
 # Check if current directory is inside an existing project
 INITIAL_DIR=""
 if project_info=$(get_current_project_info "${ARG_DIR:-}"); then
@@ -1052,4 +1068,9 @@ exec ssh \
     -o UserKnownHostsFile=/dev/null \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
-    /usr/bin/env "PROJECT=$PROJECT" "INITIAL_DIR=$INITIAL_DIR" "COMMAND=${COMMAND:-}" zsh --login || true
+    /usr/bin/env \
+        "PROJECT=$PROJECT" \
+        "INITIAL_DIR=$INITIAL_DIR" \
+        "COMMAND=${COMMAND:-}" \
+        "COMMAND_ARGS_B64=$COMMAND_ARGS_B64" \
+        zsh --login || true
