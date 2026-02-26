@@ -346,6 +346,17 @@ SELECT name, path, CASE WHEN active = 1 THEN 'yes' ELSE 'no' END as active, date
 EOF
 }
 
+get_project_path_by_name() {
+    local name="${1:-}"
+    if [[ -z "$name" ]]; then
+        return 1
+    fi
+
+    sqlite3 "$DB_FILE" <<EOF
+SELECT path FROM projects WHERE name = '$name' LIMIT 1;
+EOF
+}
+
 read_menu_key() {
     local input_fd="$1"
     local esc_seq="$2"
@@ -550,11 +561,15 @@ set_active_project() {
     local name="$1"
     local path="$2"
 
-    sqlite3 "$DB_FILE" <<EOF || return 1
+    if ! sqlite3 "$DB_FILE" <<EOF
 UPDATE projects
 SET date_added = datetime('now')
 WHERE name = '$name' AND path = '$path';
 EOF
+    then
+        warn "Failed to persist selected project ordering for: $name ($path)"
+        return 1
+    fi
 }
 
 # Get all projects as NUL-delimited --dir arguments
@@ -802,10 +817,22 @@ if [[ "$ALLOW_SUDO" != "$STORED_ALLOW_SUDO" ]]; then
     ALLOW_SUDO="$STORED_ALLOW_SUDO"
 fi
 
-# Add project if requested
+# Resolve explicit command target argument
 if [[ -n "${ARG_DIR:-}" ]]; then
-    add_project "$ARG_DIR" "$ARG_NAME"
-    SHOULD_SELECT_PROJECT=false
+    resolved_path="$(realpath "$ARG_DIR" 2>/dev/null || true)"
+    if [[ -d "$resolved_path" ]]; then
+        # PATH [NAME] form
+        add_project "$ARG_DIR" "$ARG_NAME"
+        SHOULD_SELECT_PROJECT=false
+    elif project_path="$(get_project_path_by_name "$ARG_DIR")" && [[ -n "$project_path" ]]; then
+        # NAME-only form
+        ARG_NAME="$ARG_DIR"
+        ARG_DIR="$project_path"
+        SHOULD_SELECT_PROJECT=false
+        set_active_project "$ARG_NAME" "$ARG_DIR" || true
+    else
+        abort "Error: Project not found ($ARG_DIR)"
+    fi
 fi
 
 # Get most recent project. If none exists then add the current directory as a project.
@@ -827,9 +854,7 @@ if [[ "$SHOULD_SELECT_PROJECT" == "true" ]]; then
     elif selected_project=$(select_project); then
         IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
         ARG_DIR="$PROJECT_DIR"
-        if ! set_active_project "$PROJECT" "$PROJECT_DIR"; then
-            warn "Failed to persist selected project ordering for: $PROJECT ($PROJECT_DIR)"
-        fi
+        set_active_project "$PROJECT" "$PROJECT_DIR" || true
     else
         selection_rc=$?
         if [[ "$selection_rc" -eq 1 ]]; then
