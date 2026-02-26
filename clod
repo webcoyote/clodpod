@@ -408,6 +408,11 @@ EOF
     done <<< "$result"
 
     local count="${#names[@]}"
+    if [[ "$count" -eq 1 ]]; then
+        echo "${names[0]}|${paths[0]}"
+        return 0
+    fi
+
     local input_fd=3
     local output_fd=3
     local tty_fd_open=0
