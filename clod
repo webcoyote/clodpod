@@ -2,8 +2,8 @@
 # Build a MacOS virtual machine that runs Claude Code and developer tools
 set -Eeuo pipefail
 trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE="$(realpath "$SCRIPT_DIR")"
+SCRIPT_DIR="$(builtin cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE="$(builtin cd -P "$SCRIPT_DIR" && pwd)"
 
 
 ###############################################################################
@@ -97,6 +97,52 @@ debug "MacOS image: $MACOS_IMAGE"
 #    your favorite text here
 # EOF
 heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
+
+resolve_physical_path() {
+    local input="${1:-}"
+    local path
+    local dir
+    local base
+    local target
+
+    [[ -n "$input" ]] || return 1
+
+    # Convert to absolute path first
+    if [[ "$input" = /* ]]; then
+        path="$input"
+    else
+        path="$PWD/$input"
+    fi
+
+    # Resolve parent directory to physical path
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    dir="$(builtin cd -P "$dir" 2>/dev/null && pwd -P)" || return 1
+    path="$dir/$base"
+
+    # Resolve symlink chain for the leaf path without `readlink -f`,
+    # which is only supported by OSX's BSD tools (only GNU)
+    while [[ -L "$path" ]]; do
+        target="$(readlink "$path" 2>/dev/null)" || return 1
+        if [[ "$target" = /* ]]; then
+            path="$target"
+        else
+            path="$(dirname "$path")/$target"
+        fi
+        dir="$(dirname "$path")"
+        base="$(basename "$path")"
+        dir="$(builtin cd -P "$dir" 2>/dev/null && pwd -P)" || return 1
+        path="$dir/$base"
+    done
+
+    [[ -e "$path" ]] || return 1
+    if [[ -d "$path" ]]; then
+        builtin cd -P "$path" 2>/dev/null && pwd -P
+    else
+        dir="$(builtin cd -P "$(dirname "$path")" 2>/dev/null && pwd -P)" || return 1
+        echo "$dir/$(basename "$path")"
+    fi
+}
 
 install_tools () {
     # Install brew
@@ -293,7 +339,7 @@ add_project () {
     fi
 
     local path
-    path="$(realpath "$patharg" 2>/dev/null || true)"
+    path="$(resolve_physical_path "$patharg" 2>/dev/null || true)"
     if [[ ! -d "$path" ]]; then
         abort "Error: directory not found ($patharg)"
     fi
@@ -320,7 +366,7 @@ remove_project() {
         error "Error: Project name or path required to remove project"
         return 1
     fi
-    path="$(realpath "$identifier" 2>/dev/null || echo "")"
+    path="$(resolve_physical_path "$identifier" 2>/dev/null || echo "")"
 
     # Try to remove by name first, then by path
     local rows_affected
@@ -599,7 +645,7 @@ get_relative_project_directory() {
     local project_name
     project_name="$1"
     local current_dir
-    current_dir="$(realpath "$PWD")"
+    current_dir="$(resolve_physical_path "$PWD")"
     
     local path
     path=$(sqlite3 "$DB_FILE" <<EOF || return 1
@@ -609,7 +655,7 @@ EOF
     
     if [[ -n "$path" ]]; then
         # Check if current directory is inside this project
-        path="$(realpath "$path" || true)"
+        path="$(resolve_physical_path "$path" || true)"
         if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
             # Calculate relative path from project root
             local relative_path="${current_dir#"$path"}"
@@ -815,7 +861,7 @@ fi
 
 # Resolve explicit command target argument
 if [[ -n "${PROJECT_DIR:-}" ]]; then
-    resolved_path="$(realpath "$PROJECT_DIR" 2>/dev/null || true)"
+    resolved_path="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || true)"
     if [[ -d "$resolved_path" ]]; then
         # PATH [NAME] form
         add_project "$PROJECT_DIR" "$PROJECT_NAME"
@@ -838,6 +884,7 @@ if [[ -z "${PROJECT_DIR:-}" ]]; then
     # Try to set the project directory to the top-level directory of the git repository
     # to minimize the number of directories that get mapped into the virtual machine.
     PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
+    PROJECT_DIR="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || echo "$PROJECT_DIR")"
     PROJECT_NAME="$(basename "$PROJECT_DIR")"
     add_project "$PROJECT_DIR" "$PROJECT_NAME"
     SHOULD_SELECT_PROJECT=false
