@@ -289,15 +289,13 @@ add_project () {
     local name="${2:-}"
 
     if [[ -z "$patharg" ]]; then
-        error "Error: path is required to add project"
-        return 1
+        abort "Error: path is required to add project"
     fi
 
     local path
     path="$(realpath "$patharg" 2>/dev/null || true)"
     if [[ ! -d "$path" ]]; then
-        error "Error: directory not found ($patharg)"
-        return 1
+        abort "Error: directory not found ($patharg)"
     fi
 
     # Use basename of path if name not provided
@@ -567,8 +565,7 @@ SET date_added = datetime('now')
 WHERE name = '$name' AND path = '$path';
 EOF
     then
-        warn "Failed to persist selected project ordering for: $name ($path)"
-        return 1
+        abort "Failed to persist selected project ordering for: $name ($path)"
     fi
 }
 
@@ -596,33 +593,32 @@ EOF
     fi
 }
 
-# Check if current directory is inside a project and return project info
-# Outputs: PROJECT_NAME|PROJECT_PATH|RELATIVE_PATH
-# Returns 0 if inside a project, 1 otherwise
-get_current_project_info() {
+# Check if current working directory is inside active project and returns RELATIVE_PATH
+# Returns 0 if inside the project, 1 otherwise
+get_relative_project_directory() {
+    local project_name
+    project_name="$1"
     local current_dir
-    current_dir="${1:-$(realpath "$PWD")}"
+    current_dir="$(realpath "$PWD")"
     
-    local result
-    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
-SELECT name, path FROM projects ORDER BY date_added DESC;
+    local path
+    path=$(sqlite3 "$DB_FILE" <<EOF || return 1
+SELECT path FROM projects WHERE name = '$project_name' AND active > 0 LIMIT 1;
 EOF
 )
     
-    if [[ -n "$result" ]]; then
-        while IFS='|' read -r name path; do
-            path="$(realpath "$path")"
-            # Check if current directory is inside this project
-            if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
-                # Calculate relative path from project root
-                local relative_path="${current_dir#"$path"}"
-                relative_path="${relative_path#/}"  # Remove leading slash if present
-                
-                # Output the results separated by pipe
-                echo "${name}|${path}|${relative_path}"
-                return 0
-            fi
-        done <<< "$result"
+    if [[ -n "$path" ]]; then
+        # Check if current directory is inside this project
+        path="$(realpath "$path" || true)"
+        if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
+            # Calculate relative path from project root
+            local relative_path="${current_dir#"$path"}"
+            relative_path="${relative_path#/}"  # Remove leading slash if present
+
+            # Output the results separated by pipe
+            echo "${relative_path}"
+            return 0
+        fi
     fi
     
     return 1
@@ -759,23 +755,23 @@ set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 case "${1:-}" in
     claude|cl|c)
         COMMAND=claude
-        ARG_DIR="${2:-}"
-        ARG_NAME="${3:-}"
+        PROJECT_DIR="${2:-}"
+        PROJECT_NAME="${3:-}"
         ;;
     codex|co)
         COMMAND=codex
-        ARG_DIR="${2:-}"
-        ARG_NAME="${3:-}"
+        PROJECT_DIR="${2:-}"
+        PROJECT_NAME="${3:-}"
         ;;
     gemini|gem|g)
         COMMAND=gemini
-        ARG_DIR="${2:-}"
-        ARG_NAME="${3:-}"
+        PROJECT_DIR="${2:-}"
+        PROJECT_NAME="${3:-}"
         ;;
     shell|sh|s)
         unset COMMAND
-        ARG_DIR="${2:-}"
-        ARG_NAME="${3:-}"
+        PROJECT_DIR="${2:-}"
+        PROJECT_NAME="${3:-}"
         ;;
     start)
         COMMAND=start
@@ -818,43 +814,41 @@ if [[ "$ALLOW_SUDO" != "$STORED_ALLOW_SUDO" ]]; then
 fi
 
 # Resolve explicit command target argument
-if [[ -n "${ARG_DIR:-}" ]]; then
-    resolved_path="$(realpath "$ARG_DIR" 2>/dev/null || true)"
+if [[ -n "${PROJECT_DIR:-}" ]]; then
+    resolved_path="$(realpath "$PROJECT_DIR" 2>/dev/null || true)"
     if [[ -d "$resolved_path" ]]; then
         # PATH [NAME] form
-        add_project "$ARG_DIR" "$ARG_NAME"
+        add_project "$PROJECT_DIR" "$PROJECT_NAME"
         SHOULD_SELECT_PROJECT=false
-    elif project_path="$(get_project_path_by_name "$ARG_DIR")" && [[ -n "$project_path" ]]; then
+    elif project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
         # NAME-only form
-        ARG_NAME="$ARG_DIR"
-        ARG_DIR="$project_path"
+        PROJECT_NAME="$PROJECT_DIR"
+        PROJECT_DIR="$project_path"
         SHOULD_SELECT_PROJECT=false
-        set_active_project "$ARG_NAME" "$ARG_DIR" || true
+        set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
     else
-        abort "Error: Project not found ($ARG_DIR)"
+        abort "Error: Project not found ($PROJECT_DIR)"
     fi
 fi
 
 # Get most recent project. If none exists then add the current directory as a project.
-IFS='|' read -r PROJECT PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
+IFS='|' read -r PROJECT_NAME PROJECT_DIR < <(sqlite3 "$DB_FILE" "SELECT name, path FROM
     projects ORDER BY date_added DESC LIMIT 1;" 2>/dev/null) || true
 if [[ -z "${PROJECT_DIR:-}" ]]; then
     # Try to set the project directory to the top-level directory of the git repository
     # to minimize the number of directories that get mapped into the virtual machine.
     PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || PROJECT_DIR="$PWD"
-    PROJECT="$(basename "$PROJECT_DIR")"
-    add_project "$PROJECT_DIR" "$PROJECT"
+    PROJECT_NAME="$(basename "$PROJECT_DIR")"
+    add_project "$PROJECT_DIR" "$PROJECT_NAME"
     SHOULD_SELECT_PROJECT=false
 fi
 
 if [[ "$SHOULD_SELECT_PROJECT" == "true" ]]; then
     if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
         warn "Interactive project selection disabled (no TTY); using active project"
-        ARG_DIR="$PROJECT_DIR"
     elif selected_project=$(select_project); then
-        IFS='|' read -r PROJECT PROJECT_DIR <<< "$selected_project"
-        ARG_DIR="$PROJECT_DIR"
-        set_active_project "$PROJECT" "$PROJECT_DIR" || true
+        IFS='|' read -r PROJECT_NAME PROJECT_DIR <<< "$selected_project"
+        set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
     else
         selection_rc=$?
         if [[ "$selection_rc" -eq 1 ]]; then
@@ -862,12 +856,11 @@ if [[ "$SHOULD_SELECT_PROJECT" == "true" ]]; then
             exit 1
         else
             warn "Interactive project selection unavailable; using active project"
-            ARG_DIR="$PROJECT_DIR"
         fi
     fi
 fi
 
-info "Active project: $PROJECT ($PROJECT_DIR)"
+info "Active project: $PROJECT_NAME ($PROJECT_DIR)"
 
 
 ###############################################################################
@@ -1079,16 +1072,11 @@ if [[ ${#COMMAND_ARGS[@]} -gt 0 ]]; then
     COMMAND_ARGS_B64="$(printf '%s\0' "${COMMAND_ARGS[@]}" | base64 | tr -d '\n')"
 fi
 
-# Check if current directory is inside an existing project
+# Check if current directory is inside existing project
 INITIAL_DIR=""
-if project_info=$(get_current_project_info "${ARG_DIR:-}"); then
-    # Parse the pipe-separated output
-    IFS='|' read -r CURRENT_PROJECT CURRENT_PROJECT_PATH CURRENT_RELATIVE_PATH <<< "$project_info"
-    # If we're inside a project, use that project and set initial directory
-    PROJECT="$CURRENT_PROJECT"
-    PROJECT_DIR="$CURRENT_PROJECT_PATH"
-    INITIAL_DIR="$CURRENT_RELATIVE_PATH"
-    debug "Project: $PROJECT directory: ${INITIAL_DIR:-}"
+if initial_dir=$(get_relative_project_directory "$PROJECT_NAME"); then
+    INITIAL_DIR="$initial_dir"
+    debug "initial directory: ${INITIAL_DIR:-}"
 fi
 
 exec ssh \
@@ -1099,7 +1087,7 @@ exec ssh \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
     /usr/bin/env \
-        "PROJECT=$PROJECT" \
+        "PROJECT=$PROJECT_NAME" \
         "INITIAL_DIR=$INITIAL_DIR" \
         "COMMAND=${COMMAND:-}" \
         "COMMAND_ARGS_B64=$COMMAND_ARGS_B64" \
