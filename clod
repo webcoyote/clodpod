@@ -44,9 +44,6 @@ abort () {
 if [[ $OSTYPE != 'darwin'* ]]; then
     abort "ERROR: this script is for Mac OSX"
 fi
-if [[ ! -f "$HOME/.claude.json" ]]; then
-    abort "ERROR: missing '$HOME/.claude.json'"
-fi
 
 # https://github.com/orgs/cirruslabs/packages?tab=packages&q=macos-
 VALID_MACOS_VERSIONS="tahoe sequoia sonoma ventura monterey"
