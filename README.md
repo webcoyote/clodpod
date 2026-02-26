@@ -71,6 +71,9 @@ Usage:
     # avoid leaking your passwords there :)
      CLODPOD_PASSWORD='your-password' clod shell
 
+    # Pass extra flags to an agent (e.g. Claude Code remote control)
+    CLODPOD_CLAUDE_ARGS="--remote-control" clod claude
+
     # Stop all clodpod virtual machines
     clod stop
 

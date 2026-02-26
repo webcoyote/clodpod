@@ -627,7 +627,6 @@ init_db
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 SHOULD_SELECT_PROJECT=true
 ALLOW_SUDO=
-REMOTE_CONTROL=
 
 show_help() {
     echo "Usage: clod [options] command [args...]"
@@ -639,7 +638,6 @@ show_help() {
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
     echo "  --allow-sudo         Allow passwordless sudo for clodpod user (rebuilds if setting changed)"
     echo "  --no-allow-sudo      Disallow sudo for clodpod user (rebuilds if setting changed)"
-    echo "  --remote-control     Enable Claude Code remote control (--remote-control flag)"
     echo "  -n|--no-select       Disable interactive project selection"
     echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
     echo "  -vv                  Set verbosity level 2"
@@ -697,10 +695,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-allow-sudo)
             ALLOW_SUDO=false
-            shift
-            ;;
-        --remote-control)
-            REMOTE_CONTROL=true
             shift
             ;;
         -n|--no-select)
@@ -1058,4 +1052,11 @@ exec ssh \
     -o UserKnownHostsFile=/dev/null \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
-    /usr/bin/env "PROJECT=$PROJECT" "INITIAL_DIR=$INITIAL_DIR" "COMMAND=${COMMAND:-}" "REMOTE_CONTROL=${REMOTE_CONTROL:-}" zsh --login || true
+    /usr/bin/env \
+        "PROJECT=$PROJECT" \
+        "INITIAL_DIR=$INITIAL_DIR" \
+        "COMMAND=${COMMAND:-}" \
+        "CLODPOD_CLAUDE_ARGS=${CLODPOD_CLAUDE_ARGS:-}" \
+        "CLODPOD_CODEX_ARGS=${CLODPOD_CODEX_ARGS:-}" \
+        "CLODPOD_GEMINI_ARGS=${CLODPOD_GEMINI_ARGS:-}" \
+        zsh --login || true

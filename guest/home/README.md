@@ -1,4 +1,32 @@
 
+## Per-agent extra arguments
+
+Set these environment variables on the **host** to pass extra flags through to each agent's
+wrapper script inside the VM:
+
+| Variable | Agent | Example |
+|---|---|---|
+| `CLODPOD_CLAUDE_ARGS` | Claude Code | `--remote-control` |
+| `CLODPOD_CODEX_ARGS` | OpenAI Codex | `--model o4-mini` |
+| `CLODPOD_GEMINI_ARGS` | Google Gemini | `--debug` |
+
+Usage:
+
+    # One-off
+    CLODPOD_CLAUDE_ARGS="--remote-control" clod claude
+
+    # Persistent — add to your HOST shell profile (~/.zshrc, ~/.zshenv, etc.)
+    # These are host-side variables; do NOT put them in guest/home/user/.zshrc
+    export CLODPOD_CLAUDE_ARGS="--remote-control"
+    clod claude
+
+The variables are forwarded over SSH and appended to the agent's exec invocation after its
+mandatory flags (e.g. `--dangerously-skip-permissions`) and before any arguments you pass on the
+command line. Word-splitting applies, so multiple flags work fine:
+
+    CLODPOD_CLAUDE_ARGS="--remote-control --debug" clod claude
+
+---
 
 TL;DR:
 

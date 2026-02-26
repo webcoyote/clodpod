@@ -6,4 +6,5 @@ if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing gemini..."
     npm install --global --silent @google/gemini-cli
 fi
-exec "$APP" --yolo "$@"
+# shellcheck disable=SC2086
+exec "$APP" --yolo ${CLODPOD_GEMINI_ARGS:-} "$@"

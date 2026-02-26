@@ -6,4 +6,5 @@ if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing codex..."
     npm install --global --silent @openai/codex@latest
 fi
-exec "$APP" --dangerously-bypass-approvals-and-sandbox "$@"
+# shellcheck disable=SC2086
+exec "$APP" --dangerously-bypass-approvals-and-sandbox ${CLODPOD_CODEX_ARGS:-} "$@"

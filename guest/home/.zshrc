@@ -104,9 +104,5 @@ fi
 
 # Run specified application
 if [[ "${COMMAND:-}" != "" ]]; then
-    COMMAND_ARGS=()
-    if [[ "${COMMAND:-}" == "claude" ]] && [[ "${REMOTE_CONTROL:-}" == "true" ]]; then
-        COMMAND_ARGS+=("--remote-control")
-    fi
-    exec "$COMMAND" "${COMMAND_ARGS[@]+"${COMMAND_ARGS[@]}"}"
+    exec "$COMMAND"
 fi

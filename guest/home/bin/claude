@@ -6,4 +6,5 @@ if [[ ! -x "$APP" ]]; then
     echo >&2 "Installing claude..."
     curl -fsSL https://claude.ai/install.sh | sh
 fi
-exec "$APP" --dangerously-skip-permissions "$@"
+# shellcheck disable=SC2086
+exec "$APP" --dangerously-skip-permissions ${CLODPOD_CLAUDE_ARGS:-} "$@"
