@@ -712,10 +712,24 @@ show_help() {
     echo "  a,  add PATH [NAME]       Add a new project"
     echo "  rm, remove <identifier>   Remove project by name or path"
     echo "  ls, list                  List all projects"
+    echo "  st, status                Show sudo and VM state"
     echo "      start                 Start virtual machine"
     echo "      stop                  Stop virtual machine"
     echo ""
     echo "Arguments after -- are passed to the selected command (claude, codex, gemini, shell)"
+}
+
+show_status() {
+    local allow_sudo="${1:-false}"
+    local vm_state
+
+    vm_state="$(get_vm_state "$DST_VM_NAME")"
+    if [[ -z "$vm_state" ]]; then
+        vm_state="not created"
+    fi
+
+    echo "sudo: $allow_sudo"
+    echo "vm: $vm_state"
 }
 
 # Parse optional arguments
@@ -835,6 +849,9 @@ case "${1:-}" in
         list_projects
         exit 0
         ;;
+    status|st)
+        COMMAND=status
+        ;;
     *)
         # Handle the special case that user asked for rebuild but
         # did not specify a command. We'd like to do something
@@ -849,6 +866,11 @@ esac
 
 # Decide whether sudo-setting changes require rebuild
 STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
+if [[ "${COMMAND:-}" == "status" ]]; then
+    show_status "$STORED_ALLOW_SUDO"
+    exit 0
+fi
+
 ALLOW_SUDO="${ALLOW_SUDO:-"$STORED_ALLOW_SUDO"}"
 if [[ "$ALLOW_SUDO" != "$STORED_ALLOW_SUDO" ]]; then
     info "Sudo setting changed ($STORED_ALLOW_SUDO -> $ALLOW_SUDO); forcing base rebuild"
