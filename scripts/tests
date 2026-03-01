@@ -1,0 +1,215 @@
+#!/bin/bash
+# Use "system bash" (v3.2) to validate compatibility
+set -Eeuo pipefail
+START_TIME=$(date +%s.%N)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLOD_BASE="$SCRIPT_DIR/../clod"
+
+[[ "${VERBOSE:-0}" =~ ^[0-9]+$ ]] && VERBOSE="${VERBOSE:-0}" || VERBOSE=1
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+TMP_DIR=""
+TEST_WORKSPACE=""
+MOCK_BIN=""
+
+pass() {
+    ((TESTS_PASSED++)) || true
+    if [[ "$VERBOSE" -ne 0 ]]; then
+        echo -e "  ${GREEN}PASS${NC}: $1"
+    fi
+}
+
+fail() {
+    ((TESTS_FAILED++)) || true
+    echo -e "  ${RED}FAIL${NC}: $1"
+    if [[ -n "${2:-}" ]]; then
+        echo "    Expected: $2"
+    fi
+    if [[ -n "${3:-}" ]]; then
+        echo "    Got: $3"
+    fi
+}
+
+run_test() {
+    local name="$1"
+    shift
+    ((TESTS_RUN++)) || true
+
+    if "$@"; then
+        pass "$name"
+    else
+        fail "$name" "success" "failed"
+    fi
+}
+
+create_stub() {
+    local command_name="$1"
+    local path="$MOCK_BIN/$command_name"
+    cat > "$path" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+    chmod +x "$path"
+}
+
+setup_workspace() {
+    if [[ ! -x "$CLOD_BASE" ]]; then
+        echo "Missing clod executable at $CLOD_BASE" >&2
+        exit 1
+    fi
+
+    TMP_DIR="$(mktemp -d)"
+    TEST_WORKSPACE="$TMP_DIR/clodpod"
+    MOCK_BIN="$TMP_DIR/bin"
+
+    mkdir -p "$TEST_WORKSPACE" "$MOCK_BIN"
+    cp "$CLOD_BASE" "$TEST_WORKSPACE/clod"
+    chmod +x "$TEST_WORKSPACE/clod"
+
+    # Prevent install_tools from trying to install dependencies.
+    create_stub brew
+    create_stub tart
+    create_stub jq
+    create_stub netcat
+    create_stub rush
+}
+
+cleanup() {
+    if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+trap cleanup EXIT
+
+run_clod() {
+    (
+        cd "$TEST_WORKSPACE"
+        PATH="$MOCK_BIN:$PATH" VERBOSE=0 /bin/bash "$TEST_WORKSPACE/clod" "$@"
+    )
+}
+
+test_version() {
+    local output status
+    set +e
+    output="$(run_clod --version 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -eq 0 && "$output" == *"clod version"* ]]
+}
+
+test_help() {
+    local output status
+    set +e
+    output="$(run_clod --help 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -eq 0 && "$output" == *"Usage: clod"* && "$output" == *"Commands:"* ]]
+}
+
+test_unknown_option() {
+    local output status
+    set +e
+    output="$(run_clod --bogus 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 && "$output" == *"Unknown option"* ]]
+}
+
+test_add_list_remove_project() {
+    local project_dir output status
+    project_dir="$TMP_DIR/project-alpha"
+    mkdir -p "$project_dir"
+
+    set +e
+    output="$(run_clod add "$project_dir" alpha 2>&1)"
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 || "$output" != *"Added project alpha"* ]]; then
+        return 1
+    fi
+
+    set +e
+    output="$(run_clod list 2>&1)"
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 || "$output" != *"alpha"* || "$output" != *"$project_dir"* ]]; then
+        return 1
+    fi
+
+    set +e
+    output="$(run_clod remove alpha 2>&1)"
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 || "$output" != *"Removed project alpha"* ]]; then
+        return 1
+    fi
+
+    set +e
+    output="$(run_clod list 2>&1)"
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 || "$output" == *"alpha"* ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+test_add_missing_directory_fails() {
+    local output status
+    set +e
+    output="$(run_clod add "$TMP_DIR/does-not-exist" nope 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 && "$output" == *"Error: directory not found"* ]]
+}
+
+test_remove_missing_project_fails() {
+    local output status
+    set +e
+    output="$(run_clod remove missing-project 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 && "$output" == *"Error: Project not found"* ]]
+}
+
+setup_workspace
+
+if [[ "$VERBOSE" -ne 0 ]]; then
+    echo "=== clod CLI tests ==="
+fi
+
+run_test "--version shows version" test_version
+run_test "--help shows usage" test_help
+run_test "unknown option rejected" test_unknown_option
+run_test "add/list/remove project works" test_add_list_remove_project
+run_test "add rejects missing directory" test_add_missing_directory_fails
+run_test "remove rejects missing project" test_remove_missing_project_fails
+
+if [[ "$VERBOSE" -ne 0 ]]; then
+    echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
+    echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
+fi
+
+if [[ "$TESTS_FAILED" -gt 0 ]]; then
+    exit 1
+fi
+
+END_TIME=$(date +%s.%N)
+ELAPSED_TIME=$(echo "$END_TIME - $START_TIME" | bc --mathlib | xargs printf "%.2f\n")
+if [[ "$VERBOSE" -ne 0 ]]; then
+    echo -e "✅ Tests completed in $ELAPSED_TIME seconds!"
+fi
