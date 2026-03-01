@@ -853,7 +853,6 @@ ALLOW_SUDO="${ALLOW_SUDO:-"$STORED_ALLOW_SUDO"}"
 if [[ "$ALLOW_SUDO" != "$STORED_ALLOW_SUDO" ]]; then
     info "Sudo setting changed ($STORED_ALLOW_SUDO -> $ALLOW_SUDO); forcing base rebuild"
     REBUILD_BASE=true
-    ALLOW_SUDO="$STORED_ALLOW_SUDO"
 fi
 
 # Resolve explicit command target argument
