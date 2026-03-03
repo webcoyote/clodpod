@@ -61,8 +61,11 @@ sudo chown -R "clodpod:clodpod" "/Users/clodpod"
 # Fixup file permissions
 sudo chmod 755 "/Users/clodpod"
 sudo chmod 700 "/Users/clodpod/.ssh"
-if [[ -f "/Users/clodpod/authorized_keys" ]]; then
-    sudo chmod 600 "/Users/clodpod/authorized_keys"
+if [[ -f "/Users/clodpod/.ssh/authorized_keys" ]]; then
+    sudo chmod 600 "/Users/clodpod/.ssh/authorized_keys"
+fi
+if [[ -f "/Users/clodpod/.ssh/known_hosts" ]]; then
+    sudo chmod 600 "/Users/clodpod/.ssh/known_hosts"
 fi
 if [[ -f "/Users/clodpod/.ssh/id_ed25519" ]]; then
     sudo chmod 600 "/Users/clodpod/.ssh/id_ed25519"

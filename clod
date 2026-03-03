@@ -1000,6 +1000,12 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     mkdir -p "$(dirname "$GUEST_AUTHORIZED_KEYS")"
     cp "$SSH_KEYFILE_PUB" "$GUEST_AUTHORIZED_KEYS"
     chmod 600 "$GUEST_AUTHORIZED_KEYS"
+
+    # Add GitHub to known hosts
+    GUEST_KNOWN_HOSTS="$WORKSPACE/guest/home/.ssh/known_hosts"
+    mkdir -p "$(dirname "$GUEST_KNOWN_HOSTS")"
+    ssh-keyscan github.com > "$GUEST_KNOWN_HOSTS"
+    chmod 600 "$GUEST_KNOWN_HOSTS"
 fi
 
 # https://github.com/webcoyote/clodpod/issues/5
