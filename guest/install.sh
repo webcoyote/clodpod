@@ -180,13 +180,6 @@ sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
 
 
 ###############################################################################
-# Allow clodpod user to update homebrew
-###############################################################################
-debug "Enable clodpod to update brew files"
-sudo chown -R "clodpod:clodpod" "$(brew --prefix)"
-
-
-###############################################################################
 # Eject mounted DMG files
 ###############################################################################
 dmg_volumes=$(hdiutil info | grep "/Volumes/" | grep -E "^/dev/disk[0-9]+s[0-9]+" | awk '{print $1}' || true)

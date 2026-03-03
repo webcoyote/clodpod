@@ -73,3 +73,10 @@ fi
 if [[ -f "/Users/clodpod/.ssh/id_ed25519.pub" ]]; then
     sudo chmod 644 "/Users/clodpod/.ssh/id_ed25519.pub"
 fi
+
+
+###############################################################################
+# Allow clodpod user to update homebrew
+###############################################################################
+debug "Enable clodpod to update brew files"
+sudo chown -R "clodpod:clodpod" "$(brew --prefix)"
