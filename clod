@@ -1146,12 +1146,13 @@ fi
 
 exec ssh \
     -q \
-    -t \
+    -tt \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
     /usr/bin/env \
+        "TERM=${TERM:-xterm-256color}" \
         "PROJECT=$PROJECT_NAME" \
         "INITIAL_DIR=$INITIAL_DIR" \
         "COMMAND=${COMMAND:-}" \
