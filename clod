@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a MacOS virtual machine that runs Claude Code and developer tools
+# Build a MacOS virtual machine that runs AI agents and developer tools
 set -Eeuo pipefail
 trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 SCRIPT_DIR="$(builtin cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -707,6 +707,7 @@ show_help() {
     echo "Commands:"
     echo "  cl, claude [PATH] [NAME]  Run Claude Code"
     echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
+    echo "  cu, cursor [PATH] [NAME]  Run Cursor Agent"
     echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
     echo "  s,  shell  [PATH] [NAME]  Run zsh shell"
     echo "  a,  add PATH [NAME]       Add a new project"
@@ -716,7 +717,7 @@ show_help() {
     echo "      start                 Start virtual machine"
     echo "      stop                  Stop virtual machine"
     echo ""
-    echo "Arguments after -- are passed to the selected command (claude, codex, gemini, shell)"
+    echo "Arguments after -- are passed to the command (claude, codex, cursor, gemini, shell)"
 }
 
 show_status() {
@@ -819,6 +820,11 @@ case "${1:-}" in
         COMMAND=codex
         PROJECT_DIR="${2:-}"
         PROJECT_NAME="${3:-}"
+        ;;
+    cursor|cu|ca)
+        COMMAND=cursor
+        PROJECT_DIR="${2:-}"
+        PROJECT_DIR="${3:-}"
         ;;
     gemini|gem|g)
         COMMAND=gemini

@@ -4,7 +4,7 @@
 
 ---
 
-ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
+ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini, and Cursor Agent. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
 
 ClodPod maps any number of your project directories into the virtual machine so AI agents can work on your code while remaining isolated from your host computer.
 

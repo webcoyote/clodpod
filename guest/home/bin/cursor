@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP="$HOME/.local/bin/cursor-agent"
+if [[ ! -x "$APP" ]]; then
+    echo >&2 "Installing cursor-agent..."
+    curl https://cursor.com/install -fsS | bash
+fi
+exec "$APP" -f "$@"
