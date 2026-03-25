@@ -968,6 +968,10 @@ fi
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     REBUILD_DST=true
+    # Ensure OCI image is available when base rebuild is forced (e.g. --rebuild-base, sudo change)
+    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
+        DOWNLOAD_IMAGE=true
+    fi
 fi
 
 if [[ "${REBUILD_DST:-}" != "" ]]; then
