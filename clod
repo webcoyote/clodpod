@@ -1054,9 +1054,11 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
         INSTALL_ENV+=( "CLODPOD_PASSWORD=$CLODPOD_PASSWORD" )
     fi
 
-    tart exec -it "$TMP_VM_NAME" \
+    if ! tart exec -it "$TMP_VM_NAME" \
         "${INSTALL_ENV[@]}" bash \
-        "/Volumes/My Shared Files/__install/install.sh"
+        "/Volumes/My Shared Files/__install/install.sh"; then
+        abort "install.sh failed — base VM will not be saved"
+    fi
 
     trace "Stopping $TMP_VM_NAME to flush directory service writes..."
     stop_vm "$TMP_VM_NAME"
@@ -1089,9 +1091,11 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     fi
 
     trace "Running configure.sh..."
-    tart exec -it "$TMP_VM_NAME" \
+    if ! tart exec -it "$TMP_VM_NAME" \
         "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
-        "/Volumes/My Shared Files/__install/configure.sh"
+        "/Volumes/My Shared Files/__install/configure.sh"; then
+        abort "configure.sh failed — dst VM will not be saved"
+    fi
 
     trace "Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
