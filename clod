@@ -1058,6 +1058,9 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
         "${INSTALL_ENV[@]}" bash \
         "/Volumes/My Shared Files/__install/install.sh"
 
+    trace "Stopping $TMP_VM_NAME to flush directory service writes..."
+    stop_vm "$TMP_VM_NAME"
+
     trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
     set_setting "allow_sudo" "$ALLOW_SUDO"
