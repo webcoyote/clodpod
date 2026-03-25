@@ -1062,6 +1062,10 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     set_setting "allow_sudo" "$ALLOW_SUDO"
 
     debug "Building $BASE_VM_NAME successful"
+
+    # Prune OCI cache — base VM is built, cache is no longer needed
+    debug "Pruning OCI cache..."
+    tart prune --space-budget=0 2>/dev/null || true
 fi
 
 
