@@ -954,17 +954,13 @@ fi
 ###############################################################################
 # Download MACOS image
 ###############################################################################
-if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
-    # Defer downloading the image until after asking to stop
-    # running images to avoid asking questions after a long delay
-    DOWNLOAD_IMAGE=true
-
-    # This is probably the first time install; be more verbose
-    [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
-
-    # Changing the MACOS image requires rebuild
-    REBUILD_BASE=true
-elif ! get_vm_exists "$BASE_VM_NAME" ; then
+if ! get_vm_exists "$BASE_VM_NAME" ; then
+    # Base VM missing — need to download OCI image and build it
+    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
+        DOWNLOAD_IMAGE=true
+        # This is probably the first time install; be more verbose
+        [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
+    fi
     REBUILD_BASE=true
 elif ! get_vm_exists "$DST_VM_NAME" ; then
     REBUILD_DST=true
