@@ -159,7 +159,9 @@ sudo dscl . -create /Users/clodpod UserShell "/bin/zsh"
 # restarts it.
 debug "Flushing opendirectoryd to persist user and group records..."
 sudo killall opendirectoryd
-sleep 3
+until dscl . -list /Users &>/dev/null; do
+    sleep 0.5
+done
 sync
 
 # Configure sudo
