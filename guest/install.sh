@@ -153,6 +153,17 @@ sudo dscl . -create /Users/clodpod RealName "clodpod User"
 sudo dscl . -create /Users/clodpod NFSHomeDirectory "$CLODPOD_HOME"
 sudo dscl . -create /Users/clodpod UserShell "/bin/zsh"
 
+# Force opendirectoryd to flush records to disk.
+# In Tart VMs, opendirectoryd holds records in memory and only writes stubs
+# on shutdown. Killing the daemon forces a clean flush before launchd
+# restarts it.
+debug "Flushing opendirectoryd to persist user and group records..."
+sudo killall opendirectoryd
+until dscl . -list /Users &>/dev/null; do
+    sleep 0.5
+done
+sync
+
 # Configure sudo
 if [[ "$ALLOW_SUDO" == "true" ]]; then
     debug "Enabling sudo access for clodpod user..."
