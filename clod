@@ -956,6 +956,8 @@ fi
 ###############################################################################
 if ! get_vm_exists "$BASE_VM_NAME" ; then
     # Base VM missing — need to download OCI image and build it
+    # NOTE: Changing MACOS_VERSION/MACOS_FLAVOR does not auto-rebuild an existing base.
+    # Use --rebuild-base to force a rebuild after changing the macOS image.
     if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
         DOWNLOAD_IMAGE=true
         # This is probably the first time install; be more verbose
