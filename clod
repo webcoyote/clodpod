@@ -278,6 +278,9 @@ cleanup_tmp_vm () {
     fi
 }
 
+# Escape single quotes for safe SQLite string literals: ' → ''
+sql_escape() { printf '%s' "${1//\'/\'\'}"; }
+
 init_db() {
     debug "Creating $DB_FILE database..."
     sqlite3 "$DB_FILE" <<EOF
@@ -300,7 +303,7 @@ get_setting() {
     local default_value="${2:-}"
     local value
     value=$(sqlite3 "$DB_FILE" <<EOF
-SELECT COALESCE((SELECT value FROM settings WHERE key = '$key' LIMIT 1), '$default_value');
+SELECT COALESCE((SELECT value FROM settings WHERE key = '$(sql_escape "$key")' LIMIT 1), '$(sql_escape "$default_value")');
 EOF
 )
     trace "Setting '$key' resolved to '$value'"
@@ -312,7 +315,7 @@ set_setting() {
     local value="$2"
     sqlite3 "$DB_FILE" <<EOF
 INSERT OR REPLACE INTO settings (key, value, updated_at)
-VALUES ('$key', '$value', datetime('now'));
+VALUES ('$(sql_escape "$key")', '$(sql_escape "$value")', datetime('now'));
 EOF
 }
 
@@ -347,10 +350,10 @@ add_project () {
     fi
 
     sqlite3 "$DB_FILE" <<EOF
-INSERT OR IGNORE INTO projects (path, name, date_added) VALUES ('$path', '$name', datetime('now'));
+INSERT OR IGNORE INTO projects (path, name, date_added) VALUES ('$(sql_escape "$path")', '$(sql_escape "$name")', datetime('now'));
 EOF
     sqlite3 "$DB_FILE" <<EOF
-UPDATE projects set date_added = datetime('now') where name = '$name';
+UPDATE projects set date_added = datetime('now') where name = '$(sql_escape "$name")';
 EOF
 
     info "Added project $name ($path)"
@@ -368,7 +371,7 @@ remove_project() {
     # Try to remove by name first, then by path
     local rows_affected
     rows_affected=$(sqlite3 "$DB_FILE" <<EOF
-DELETE FROM projects WHERE name = '$identifier' OR path = '$identifier' OR path = '$path';
+DELETE FROM projects WHERE name = '$(sql_escape "$identifier")' OR path = '$(sql_escape "$identifier")' OR path = '$(sql_escape "$path")';
 SELECT changes();
 EOF
 )
@@ -394,7 +397,7 @@ get_project_path_by_name() {
     fi
 
     sqlite3 "$DB_FILE" <<EOF
-SELECT path FROM projects WHERE name = '$name' LIMIT 1;
+SELECT path FROM projects WHERE name = '$(sql_escape "$name")' LIMIT 1;
 EOF
 }
 
@@ -605,7 +608,7 @@ set_active_project() {
     if ! sqlite3 "$DB_FILE" <<EOF
 UPDATE projects
 SET date_added = datetime('now')
-WHERE name = '$name' AND path = '$path';
+WHERE name = '$(sql_escape "$name")' AND path = '$(sql_escape "$path")';
 EOF
     then
         abort "Failed to persist selected project ordering for: $name ($path)"
@@ -646,7 +649,7 @@ get_relative_project_directory() {
     
     local path
     path=$(sqlite3 "$DB_FILE" <<EOF || return 1
-SELECT path FROM projects WHERE name = '$project_name' AND active > 0 LIMIT 1;
+SELECT path FROM projects WHERE name = '$(sql_escape "$project_name")' AND active > 0 LIMIT 1;
 EOF
 )
     
