@@ -954,17 +954,15 @@ fi
 ###############################################################################
 # Download MACOS image
 ###############################################################################
-if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
-    # Defer downloading the image until after asking to stop
-    # running images to avoid asking questions after a long delay
-    DOWNLOAD_IMAGE=true
-
-    # This is probably the first time install; be more verbose
-    [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
-
-    # Changing the MACOS image requires rebuild
-    REBUILD_BASE=true
-elif ! get_vm_exists "$BASE_VM_NAME" ; then
+if ! get_vm_exists "$BASE_VM_NAME" ; then
+    # Base VM missing — need to download OCI image and build it
+    # NOTE: Changing MACOS_VERSION/MACOS_FLAVOR does not auto-rebuild an existing base.
+    # Use --rebuild-base to force a rebuild after changing the macOS image.
+    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
+        DOWNLOAD_IMAGE=true
+        # This is probably the first time install; be more verbose
+        [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
+    fi
     REBUILD_BASE=true
 elif ! get_vm_exists "$DST_VM_NAME" ; then
     REBUILD_DST=true
@@ -972,6 +970,10 @@ fi
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     REBUILD_DST=true
+    # Ensure OCI image is available when base rebuild is forced (e.g. --rebuild-base, sudo change)
+    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
+        DOWNLOAD_IMAGE=true
+    fi
 fi
 
 if [[ "${REBUILD_DST:-}" != "" ]]; then
@@ -1066,6 +1068,10 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     set_setting "allow_sudo" "$ALLOW_SUDO"
 
     debug "Building $BASE_VM_NAME successful"
+
+    # Prune OCI cache — base VM is built, cache is no longer needed
+    debug "Pruning OCI cache..."
+    tart prune --space-budget=0 2>/dev/null || true
 fi
 
 
