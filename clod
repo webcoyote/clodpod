@@ -276,6 +276,14 @@ cleanup_tmp_vm () {
     if [[ -n "${TMP_VM_NAME:-}" ]]; then
         delete_vm "$TMP_VM_NAME"
     fi
+    # Rollback: if old base was renamed aside but new base was never created, restore it
+    if [[ -n "${OLD_BASE_VM_NAME:-}" ]]; then
+        if ! tart list --quiet | grep "^${BASE_VM_NAME}$" >/dev/null 2>&1; then
+            tart rename "$OLD_BASE_VM_NAME" "$BASE_VM_NAME" 2>/dev/null || true
+        else
+            delete_vm "$OLD_BASE_VM_NAME"
+        fi
+    fi
 }
 
 init_db() {
@@ -1044,7 +1052,14 @@ trap cleanup_tmp_vm EXIT
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     debug "Building $BASE_VM_NAME..."
-    delete_vm "$BASE_VM_NAME"
+
+    # Move existing base aside instead of deleting — allows rollback on failure
+    OLD_BASE_VM_NAME=""
+    if tart list --quiet | grep "^${BASE_VM_NAME}$" >/dev/null 2>&1; then
+        OLD_BASE_VM_NAME="${BASE_VM_NAME}-old-$(openssl rand -hex 4)"
+        trace "Renaming $BASE_VM_NAME to $OLD_BASE_VM_NAME (backup)"
+        tart rename "$BASE_VM_NAME" "$OLD_BASE_VM_NAME"
+    fi
 
     trace "Cloning image to $TMP_VM_NAME..."
     clone_vm "$MACOS_IMAGE" "$TMP_VM_NAME"
@@ -1066,6 +1081,13 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
     set_setting "allow_sudo" "$ALLOW_SUDO"
+
+    # New base built successfully — remove old base
+    if [[ -n "$OLD_BASE_VM_NAME" ]]; then
+        trace "Deleting old base $OLD_BASE_VM_NAME"
+        delete_vm "$OLD_BASE_VM_NAME"
+        OLD_BASE_VM_NAME=""
+    fi
 
     debug "Building $BASE_VM_NAME successful"
 
