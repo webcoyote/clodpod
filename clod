@@ -756,7 +756,7 @@ show_help() {
     echo "  --graphics           Run virtual machine with graphics (default)"
     echo "  --no-graphics        Run virtual machine without graphics"
     echo "  --rebuild-oci        Force rebuild of Layer 0 from the OCI image"
-    echo "                        Also prunes Tart OCI caches after Layer 0 is recreated"
+    echo "                        Prunes ALL Tart caches after Layer 0 is created"
     echo "  --rebuild-base       Force rebuild of the base image from Layer 0 (brew update)"
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
     echo "  --allow-sudo         Allow passwordless sudo for clodpod user (rebuilds if setting changed)"
