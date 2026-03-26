@@ -356,13 +356,6 @@ check_oci_provenance() {
 
 ensure_oci_base() {
     if get_vm_exists "$OCI_VM_NAME"; then
-        # Verify provenance even when DB has no record (e.g. fresh checkout)
-        local stored_image
-        stored_image="$(get_setting "oci_base_image" "")"
-        if [[ -z "$stored_image" ]]; then
-            # No provenance recorded — trust existing Layer 0 and record it
-            set_setting "oci_base_image" "$MACOS_IMAGE"
-        fi
         return 0
     fi
 
