@@ -25,3 +25,4 @@ Special thanks to all who have provided feedback, bug reports, and suggestions f
 - statico
 - burakkurkcu
 - tallpsmith
+- vre
