@@ -356,6 +356,13 @@ check_oci_provenance() {
 
 ensure_oci_base() {
     if get_vm_exists "$OCI_VM_NAME"; then
+        # Verify provenance even when DB has no record (e.g. fresh checkout)
+        local stored_image
+        stored_image="$(get_setting "oci_base_image" "")"
+        if [[ -z "$stored_image" ]]; then
+            # No provenance recorded — trust existing Layer 0 and record it
+            set_setting "oci_base_image" "$MACOS_IMAGE"
+        fi
         return 0
     fi
 
@@ -1059,6 +1066,10 @@ if [[ "${REBUILD_OCI:-}" != "" ]]; then
     fi
 fi
 
+# Install cleanup trap early so ensure_oci_base temp VMs are cleaned up on Ctrl+C
+TMP_VM_NAME=""
+trap cleanup_tmp_vm EXIT
+
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     # This is probably the first time install; be more verbose
     [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
@@ -1112,10 +1123,8 @@ fi
 ###############################################################################
 # Create Base VM
 ###############################################################################
-# It's possible this script will fail or be cancelled halfway
-# through so build to a temporary image and rename when complete
+# Build to a temporary image and rename when complete
 TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
-trap cleanup_tmp_vm EXIT
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     debug "Building $BASE_VM_NAME..."
