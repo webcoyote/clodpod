@@ -79,6 +79,7 @@ fi
 # Definitions
 ###############################################################################
 VERSION="1.0.19"
+OCI_VM_NAME="clodpod-oci-base"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
@@ -276,6 +277,9 @@ cleanup_tmp_vm () {
     if [[ -n "${TMP_VM_NAME:-}" ]]; then
         delete_vm "$TMP_VM_NAME"
     fi
+    if [[ -n "${TMP_OCI_VM_NAME:-}" ]]; then
+        delete_vm "$TMP_OCI_VM_NAME"
+    fi
     # Rollback: if old base was renamed aside but new base was never created, restore it
     if [[ -n "${OLD_BASE_VM_NAME:-}" ]]; then
         if ! tart list --quiet | grep "^${BASE_VM_NAME}$" >/dev/null 2>&1; then
@@ -325,6 +329,46 @@ set_setting() {
 INSERT OR REPLACE INTO settings (key, value, updated_at)
 VALUES ('$(sql_escape "$key")', '$(sql_escape "$value")', datetime('now'));
 EOF
+}
+
+check_oci_provenance() {
+    local check_only="${1:-false}"
+
+    if [[ "${REBUILD_OCI:-}" != "" ]]; then
+        return 0
+    fi
+
+    local stored_image
+    stored_image="$(get_setting "oci_base_image" "")"
+
+    if [[ -z "$stored_image" ]]; then
+        return 0
+    fi
+
+    if [[ "$stored_image" != "$MACOS_IMAGE" ]]; then
+        if [[ "$check_only" == "true" ]]; then
+            warn "Image mismatch: built from $stored_image, current is $MACOS_IMAGE. Use --rebuild-oci to rebuild."
+        else
+            abort "Image mismatch: built from $stored_image, current is $MACOS_IMAGE. Use --rebuild-oci to rebuild."
+        fi
+    fi
+}
+
+ensure_oci_base() {
+    if get_vm_exists "$OCI_VM_NAME"; then
+        return 0
+    fi
+
+    debug "Creating $OCI_VM_NAME from $MACOS_IMAGE..."
+    debug "Downloading image..."
+    tart pull "$MACOS_IMAGE"
+
+    TMP_OCI_VM_NAME="clodpod-oci-tmp-$(openssl rand -hex 4)"
+    tart clone "$MACOS_IMAGE" "$TMP_OCI_VM_NAME"
+    tart rename "$TMP_OCI_VM_NAME" "$OCI_VM_NAME"
+    set_setting "oci_base_image" "$MACOS_IMAGE"
+    tart prune --space-budget=0 2>/dev/null || true
+    debug "$OCI_VM_NAME created"
 }
 
 check_projects_active() {
@@ -704,7 +748,9 @@ show_help() {
     echo "Options:"
     echo "  --graphics           Run virtual machine with graphics (default)"
     echo "  --no-graphics        Run virtual machine without graphics"
-    echo "  --rebuild-base       Force rebuild of the base image (brew update)"
+    echo "  --rebuild-oci        Force rebuild of Layer 0 from the OCI image"
+    echo "                        Prunes ALL Tart caches after Layer 0 is created"
+    echo "  --rebuild-base       Force rebuild of the base image from Layer 0 (brew update)"
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
     echo "  --allow-sudo         Allow passwordless sudo for clodpod user (rebuilds if setting changed)"
     echo "  --no-allow-sudo      Disallow sudo for clodpod user (rebuilds if setting changed)"
@@ -724,7 +770,7 @@ show_help() {
     echo "  a,  add PATH [NAME]       Add a new project"
     echo "  rm, remove <identifier>   Remove project by name or path"
     echo "  ls, list                  List all projects"
-    echo "  st, status                Show sudo and VM state"
+    echo "  st, status                Show sudo, Layer 0/base/dst state, and image provenance"
     echo "      start                 Start virtual machine"
     echo "      stop                  Stop virtual machine"
     echo ""
@@ -733,15 +779,27 @@ show_help() {
 
 show_status() {
     local allow_sudo="${1:-false}"
-    local vm_state
+    local oci_vm_state
+    local base_vm_state
+    local dst_vm_state
+    local stored_image
 
-    vm_state="$(get_vm_state "$DST_VM_NAME")"
-    if [[ -z "$vm_state" ]]; then
-        vm_state="not created"
-    fi
+    oci_vm_state="$(get_vm_state "$OCI_VM_NAME")"
+    base_vm_state="$(get_vm_state "$BASE_VM_NAME")"
+    dst_vm_state="$(get_vm_state "$DST_VM_NAME")"
+    stored_image="$(get_setting "oci_base_image" "")"
+
+    [[ -n "$oci_vm_state" ]] || oci_vm_state="not created"
+    [[ -n "$base_vm_state" ]] || base_vm_state="not created"
+    [[ -n "$dst_vm_state" ]] || dst_vm_state="not created"
+    [[ -n "$stored_image" ]] || stored_image="not recorded"
 
     echo "sudo: $allow_sudo"
-    echo "vm: $vm_state"
+    echo "layer0 vm: $oci_vm_state"
+    echo "base vm: $base_vm_state"
+    echo "dst vm: $dst_vm_state"
+    echo "stored image: $stored_image"
+    echo "current image: $MACOS_IMAGE"
 }
 
 # Parse optional arguments
@@ -779,6 +837,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --rebuild-base)
             REBUILD_BASE=true
+            shift
+            ;;
+        --rebuild-oci)
+            REBUILD_OCI=true
             shift
             ;;
         --rebuild-dst)
@@ -873,7 +935,7 @@ case "${1:-}" in
         # Handle the special case that user asked for rebuild but
         # did not specify a command. We'd like to do something
         # nicer than just exit
-        if [[ -z "${REBUILD_BASE:-}" ]] && [[ -z "${REBUILD_DST:-}" ]]; then
+        if [[ -z "${REBUILD_BASE:-}" ]] && [[ -z "${REBUILD_DST:-}" ]] && [[ -z "${REBUILD_OCI:-}" ]]; then
             show_help
             exit 0
         fi
@@ -884,6 +946,7 @@ esac
 # Decide whether sudo-setting changes require rebuild
 STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
 if [[ "${COMMAND:-}" == "status" ]]; then
+    check_oci_provenance true
     show_status "$STORED_ALLOW_SUDO"
     exit 0
 fi
@@ -943,6 +1006,7 @@ if [[ "$SHOULD_SELECT_PROJECT" == "true" ]]; then
 fi
 
 info "Active project: $PROJECT_NAME ($PROJECT_DIR)"
+check_oci_provenance
 
 
 ###############################################################################
@@ -961,19 +1025,15 @@ if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
     REBUILD_DST=true
 fi
 
+if [[ "${REBUILD_OCI:-}" != "" ]]; then
+    REBUILD_BASE=true
+fi
+
 
 ###############################################################################
-# Download MACOS image
+# Determine virtual machine rebuilds
 ###############################################################################
 if ! get_vm_exists "$BASE_VM_NAME" ; then
-    # Base VM missing — need to download OCI image and build it
-    # NOTE: Changing MACOS_VERSION/MACOS_FLAVOR does not auto-rebuild an existing base.
-    # Use --rebuild-base to force a rebuild after changing the macOS image.
-    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
-        DOWNLOAD_IMAGE=true
-        # This is probably the first time install; be more verbose
-        [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
-    fi
     REBUILD_BASE=true
 elif ! get_vm_exists "$DST_VM_NAME" ; then
     REBUILD_DST=true
@@ -981,10 +1041,6 @@ fi
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     REBUILD_DST=true
-    # Ensure OCI image is available when base rebuild is forced (e.g. --rebuild-base, sudo change)
-    if ! get_vm_exists "$MACOS_IMAGE" "oci" ; then
-        DOWNLOAD_IMAGE=true
-    fi
 fi
 
 if [[ "${REBUILD_DST:-}" != "" ]]; then
@@ -996,9 +1052,21 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
     delete_vm "$DST_VM_NAME"
 fi
 
-if [[ "${DOWNLOAD_IMAGE:-}" != "" ]]; then
-    debug "Downloading image..."
-    tart pull "$MACOS_IMAGE" # >/dev/null
+if [[ "${REBUILD_OCI:-}" != "" ]]; then
+    delete_vm "$OCI_VM_NAME"
+    if get_vm_exists "$OCI_VM_NAME"; then
+        abort "Failed to delete $OCI_VM_NAME — cannot rebuild Layer 0"
+    fi
+fi
+
+# Install cleanup trap early so ensure_oci_base temp VMs are cleaned up on Ctrl+C
+TMP_VM_NAME=""
+trap cleanup_tmp_vm EXIT
+
+if [[ "${REBUILD_BASE:-}" != "" ]]; then
+    # This is probably the first time install; be more verbose
+    [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
+    ensure_oci_base
 fi
 
 
@@ -1048,10 +1116,8 @@ fi
 ###############################################################################
 # Create Base VM
 ###############################################################################
-# It's possible this script will fail or be cancelled halfway
-# through so build to a temporary image and rename when complete
+# Build to a temporary image and rename when complete
 TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
-trap cleanup_tmp_vm EXIT
 
 if [[ "${REBUILD_BASE:-}" != "" ]]; then
     debug "Building $BASE_VM_NAME..."
@@ -1064,8 +1130,8 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
         tart rename "$BASE_VM_NAME" "$OLD_BASE_VM_NAME"
     fi
 
-    trace "Cloning image to $TMP_VM_NAME..."
-    clone_vm "$MACOS_IMAGE" "$TMP_VM_NAME"
+    trace "Cloning $OCI_VM_NAME to $TMP_VM_NAME..."
+    clone_vm "$OCI_VM_NAME" "$TMP_VM_NAME"
     run_vm "$TMP_VM_NAME"
 
     trace "Running install.sh..."
@@ -1086,6 +1152,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
     trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
     set_setting "allow_sudo" "$ALLOW_SUDO"
+    set_setting "oci_base_image" "$MACOS_IMAGE"
 
     # New base built successfully — remove old base
     if [[ -n "$OLD_BASE_VM_NAME" ]]; then
