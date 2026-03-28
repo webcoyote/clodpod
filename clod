@@ -624,6 +624,124 @@ SELECT path FROM projects WHERE name = '$(sql_escape "$name")' LIMIT 1;
 EOF
 }
 
+vm_create() {
+    local instance_name="${1:-}"
+    shift || true
+
+    [[ -n "$instance_name" ]] || abort "Usage: clod create <name> [--dir name:path]..."
+    vm_validate_name "$instance_name"
+
+    if vm_instance_exists "$instance_name"; then
+        abort "Error: instance already exists ($instance_name)"
+    fi
+
+    local final_vm_name
+    final_vm_name="$(vm_name_to_vm_name "$instance_name")"
+    if get_vm_exists "$final_vm_name"; then
+        abort "Error: tart VM already exists outside the database ($final_vm_name)"
+    fi
+
+    local dir_names=()
+    local dir_paths=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir)
+                [[ $# -ge 2 ]] || abort "Error: --dir requires name:path"
+
+                local dir_spec="$2"
+                shift 2
+
+                [[ "$dir_spec" == *:* ]] || abort "Error: invalid --dir value ($dir_spec)"
+                local dir_name="${dir_spec%%:*}"
+                local dir_path_spec="${dir_spec#*:}"
+                [[ -n "$dir_name" ]] || abort "Error: missing directory name in --dir"
+                [[ -n "$dir_path_spec" ]] || abort "Error: missing directory path in --dir"
+                [[ "$dir_name" != "__install" ]] || abort "Error: reserved directory name (__install)"
+                if array_contains "$dir_name" ${dir_names[@]+"${dir_names[@]}"}; then
+                    abort "Error: duplicate --dir name ($dir_name)"
+                fi
+
+                local dir_path
+                dir_path="$(resolve_physical_path "$dir_path_spec" 2>/dev/null || true)"
+                if [[ ! -d "$dir_path" ]]; then
+                    abort "Error: directory not found ($dir_path_spec)"
+                fi
+
+                dir_names+=("$dir_name")
+                dir_paths+=("$dir_path")
+                ;;
+            *)
+                abort "Error: unknown create option ($1)"
+                ;;
+        esac
+    done
+
+    if ! get_vm_exists "$BASE_VM_NAME"; then
+        abort "Error: base VM missing. Run 'clod shell' first to bootstrap it."
+    fi
+
+    ensure_ssh_key
+    refresh_guest_home
+
+    TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
+    trap cleanup_tmp_vm EXIT
+
+    clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
+
+    local vm_args=()
+    local i=0
+    while [[ "$i" -lt "${#dir_names[@]}" ]]; do
+        vm_args+=("--dir" "${dir_names[$i]}:${dir_paths[$i]}")
+        i=$((i + 1))
+    done
+    vm_args+=("--dir" "__install:$WORKSPACE/guest")
+    vm_run "$TMP_VM_NAME" "${vm_args[@]}"
+
+    trace "Running configure.sh..."
+    if ! tart exec -it "$TMP_VM_NAME" \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
+        "/Volumes/My Shared Files/__install/configure.sh"; then
+        abort "configure.sh failed — named VM will not be saved"
+    fi
+
+    trace "Stopping $TMP_VM_NAME to flush directory service writes..."
+    stop_vm "$TMP_VM_NAME"
+
+    trace "Renaming $TMP_VM_NAME to $final_vm_name"
+    tart rename "$TMP_VM_NAME" "$final_vm_name"
+    TMP_VM_NAME=""
+
+    local sql
+    sql="BEGIN IMMEDIATE;
+INSERT INTO instances (name, vm_name, created_at)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', datetime('now'));"
+
+    i=0
+    while [[ "$i" -lt "${#dir_names[@]}" ]]; do
+        local is_primary=0
+        if [[ "$i" -eq 0 ]]; then
+            is_primary=1
+        fi
+        sql="${sql}
+INSERT INTO instance_dirs (instance_name, dir_name, dir_path, is_primary)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "${dir_names[$i]}")', '$(sql_escape "${dir_paths[$i]}")', $is_primary);"
+        i=$((i + 1))
+    done
+    sql="${sql}
+COMMIT;"
+
+    if ! printf '%s\n' "$sql" | sqlite3 "$DB_FILE"; then
+        warn "DB insert failed — removing VM $final_vm_name"
+        tart delete "$final_vm_name" 2>/dev/null || true
+        if get_vm_exists "$final_vm_name"; then
+            abort "Failed to record instance AND failed to delete VM $final_vm_name — orphan VM left behind"
+        fi
+        abort "Failed to record instance $instance_name"
+    fi
+
+    info "Created instance $instance_name"
+}
+
 read_menu_key() {
     local input_fd="$1"
     local esc_seq="$2"
@@ -972,6 +1090,30 @@ show_status() {
     echo "stored image: $stored_image"
     echo "current image: $MACOS_IMAGE"
 }
+
+# Intercept commands that need their own option parsing before the global loop.
+# But let -h/--help/--version pass through to the normal handler.
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help|--version|-V)
+            break  # let global parser handle these
+            ;;
+        -*)
+            continue
+            ;;
+        create|cr)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            vm_create "$@"
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 # Parse optional arguments
 NEW_ARGS=()
