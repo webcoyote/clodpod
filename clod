@@ -183,6 +183,88 @@ vm_validate_name() {
     fi
 }
 
+ensure_ssh_key() {
+    SSH_KEY_CREATED=false
+    if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
+        mkdir -p "$SSH_DIR"
+        ssh-keygen -t ed25519 \
+            -f "$SSH_KEYFILE_PRIV" \
+            -N "" \
+            -q \
+            -C "clodpod-${USER}@${HOSTNAME}"
+        SSH_KEY_CREATED=true
+        REBUILD_DST=true
+        # Sync new key to all existing named VMs
+        sync_ssh_key_to_all_instances
+    fi
+}
+
+# Push updated authorized_keys to all named instances that exist as tart VMs.
+# Temporarily starts stopped VMs, pushes key, stops them again.
+sync_ssh_key_to_all_instances() {
+    local instance_names
+    instance_names="$(sqlite3 "$DB_FILE" "SELECT vm_name FROM instances;" 2>/dev/null)" || return 0
+    [[ -n "$instance_names" ]] || return 0
+
+    local pub_key
+    pub_key="$(cat "$SSH_KEYFILE_PUB")"
+
+    # Also sync to legacy clodpod-xcode if it exists
+    if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_names" | grep -q "^${DST_VM_NAME}$"; then
+        instance_names="${instance_names:+$instance_names
+}$DST_VM_NAME"
+    fi
+
+    while IFS= read -r vm; do
+        if ! get_vm_exists "$vm"; then
+            continue
+        fi
+        local was_stopped=false
+        if [[ "$(get_vm_state "$vm")" != "running" ]]; then
+            was_stopped=true
+            tart run --no-graphics "$vm" </dev/null &>/dev/null & disown
+            # Wait with timeout, skip this VM if it won't start
+            local elapsed=0
+            while [[ "$(get_vm_state "$vm")" != "running" ]] && [[ "$elapsed" -lt 30 ]]; do
+                sleep 1
+                elapsed=$((elapsed + 1))
+            done
+            if [[ "$(get_vm_state "$vm")" != "running" ]]; then
+                warn "Could not start $vm for SSH key sync — skipping"
+                continue
+            fi
+        fi
+        debug "Syncing SSH key to $vm..."
+        printf '%s\n' "$pub_key" | tart exec "$vm" -- \
+            bash -c 'cat > /Users/clodpod/.ssh/authorized_keys && chmod 600 /Users/clodpod/.ssh/authorized_keys' \
+            2>/dev/null || true
+        if [[ "$was_stopped" == "true" ]]; then
+            tart stop "$vm" 2>/dev/null || true
+        fi
+    done <<< "$instance_names"
+}
+
+refresh_guest_home() {
+    debug "Configuring credentials..."
+
+    local git_user_name
+    local git_user_email
+    git_user_name="$(git config --global --get user.name 2>/dev/null || echo "")"
+    git_user_email="$(git config --global --get user.email 2>/dev/null || echo "")"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$git_user_name"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$git_user_email"
+
+    local guest_authorized_keys="$WORKSPACE/guest/home/.ssh/authorized_keys"
+    mkdir -p "$(dirname "$guest_authorized_keys")"
+    cp "$SSH_KEYFILE_PUB" "$guest_authorized_keys"
+    chmod 600 "$guest_authorized_keys"
+
+    local guest_known_hosts="$WORKSPACE/guest/home/.ssh/known_hosts"
+    mkdir -p "$(dirname "$guest_known_hosts")"
+    ssh-keyscan github.com > "$guest_known_hosts"
+    chmod 600 "$guest_known_hosts"
+}
+
 install_tools () {
     # Install brew
     if ! command -v brew &> /dev/null ; then
@@ -1082,18 +1164,7 @@ check_oci_provenance
 ###############################################################################
 # Create passwordless SSH key with permission to remotely login to guest
 ###############################################################################
-SSH_DIR="$HOME/.ssh"
-SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
-SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
-if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
-    mkdir -p "$SSH_DIR"
-    ssh-keygen -t ed25519 \
-        -f "$SSH_KEYFILE_PRIV" \
-        -N "" \
-        -q \
-        -C "clodpod-${USER}@${HOSTNAME}"
-    REBUILD_DST=true
-fi
+ensure_ssh_key
 
 if [[ "${REBUILD_OCI:-}" != "" ]]; then
     REBUILD_BASE=true
@@ -1144,25 +1215,7 @@ fi
 # Configure virtual machine settings
 ###############################################################################
 if [[ "${REBUILD_DST:-}" != "" ]]; then
-    debug "Configuring credentials..."
-
-    # Get git config from host
-    GIT_USER_NAME=$(git config --global --get user.name 2>/dev/null || echo "")
-    GIT_USER_EMAIL=$(git config --global --get user.email 2>/dev/null || echo "")
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$GIT_USER_NAME"
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$GIT_USER_EMAIL"
-
-    # Add SSH public key to host's authorized_keys
-    GUEST_AUTHORIZED_KEYS="$WORKSPACE/guest/home/.ssh/authorized_keys"
-    mkdir -p "$(dirname "$GUEST_AUTHORIZED_KEYS")"
-    cp "$SSH_KEYFILE_PUB" "$GUEST_AUTHORIZED_KEYS"
-    chmod 600 "$GUEST_AUTHORIZED_KEYS"
-
-    # Add GitHub to known hosts
-    GUEST_KNOWN_HOSTS="$WORKSPACE/guest/home/.ssh/known_hosts"
-    mkdir -p "$(dirname "$GUEST_KNOWN_HOSTS")"
-    ssh-keyscan github.com > "$GUEST_KNOWN_HOSTS"
-    chmod 600 "$GUEST_KNOWN_HOSTS"
+    refresh_guest_home
 fi
 
 # https://github.com/webcoyote/clodpod/issues/5
