@@ -351,6 +351,25 @@ UPDATE projects SET active = 1;
 EOF
 }
 
+vm_run () {
+    local vm_name="$1"
+    shift
+
+    debug "Running $vm_name"
+
+    local args=("$@")
+    [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
+
+    if [[ "${#args[@]}" -gt 0 ]]; then
+        tart run \
+            "${args[@]}" \
+            "$vm_name" </dev/null &>/dev/null & disown
+    else
+        tart run "$vm_name" </dev/null &>/dev/null & disown
+    fi
+    wait_vm_running "$vm_name"
+}
+
 stop_vm () {
     local vm_name="$1"
     if [[ "$(get_vm_state "$vm_name")" != "stopped" ]]; then
