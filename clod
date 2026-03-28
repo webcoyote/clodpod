@@ -1150,6 +1150,114 @@ vm_sync_authorized_key() {
         '
 }
 
+vm_list() {
+    local result
+    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
+SELECT name, vm_name FROM instances ORDER BY created_at DESC, name ASC;
+EOF
+)
+
+    [[ -n "$result" ]] || return 1
+
+    echo "INSTANCES"
+    printf "%-20s %-12s %-15s %s\n" "NAME" "STATE" "IP" "DIRS"
+
+    local instance_name
+    local vm_name
+    while IFS='|' read -r instance_name vm_name; do
+        local state
+        local ipaddr="-"
+        local dir_rows
+        local dirs=""
+
+        state="$(get_vm_state "$vm_name")"
+        [[ -n "$state" ]] || state="not created"
+        if [[ "$state" == "running" ]]; then
+            ipaddr="$(tart ip "$vm_name" 2>/dev/null || echo "-")"
+            [[ -n "$ipaddr" ]] || ipaddr="-"
+        fi
+
+        dir_rows="$(vm_get_instance_dirs "$instance_name")"
+        if [[ -n "$dir_rows" ]]; then
+            local dir_name
+            local dir_path
+            local is_primary
+            while IFS='|' read -r dir_name dir_path is_primary; do
+                local entry="${dir_name}:${dir_path}"
+                if [[ "$is_primary" -eq 1 ]]; then
+                    entry="$entry (primary)"
+                fi
+                if [[ -n "$dirs" ]]; then
+                    dirs="$dirs, "
+                fi
+                dirs="${dirs}${entry}"
+            done <<< "$dir_rows"
+        fi
+        [[ -n "$dirs" ]] || dirs="-"
+
+        printf "%-20s %-12s %-15s %s\n" "$instance_name" "$state" "$ipaddr" "$dirs"
+    done <<< "$result"
+}
+
+vm_shell() {
+    local instance_name="$1"
+    local vm_name
+    local blocking_vm
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    if ! get_vm_exists "$vm_name"; then
+        abort "Error: VM missing for instance $instance_name ($vm_name). Destroy and recreate it."
+    fi
+
+    blocking_vm="$(vm_find_blocking_running_vm "$vm_name" || true)"
+    if [[ -n "$blocking_vm" ]]; then
+        abort "Error: another clodpod VM is running ($blocking_vm). Stop it first with 'clod stop'."
+    fi
+
+    ensure_ssh_key
+
+    local dir_args=()
+    local primary_name=""
+    local primary_path=""
+    local dir_rows
+    dir_rows="$(vm_get_instance_dirs "$instance_name")"
+    if [[ -n "$dir_rows" ]]; then
+        local dir_name
+        local dir_path
+        local is_primary
+        while IFS='|' read -r dir_name dir_path is_primary; do
+            if [[ ! -d "$dir_path" ]]; then
+                warn "Instance directory missing on host: $dir_name ($dir_path)"
+                continue
+            fi
+
+            dir_args+=("--dir" "${dir_name}:${dir_path}")
+            if [[ "$is_primary" -eq 1 ]] && [[ -z "$primary_name" ]]; then
+                primary_name="$dir_name"
+                primary_path="$dir_path"
+            fi
+        done <<< "$dir_rows"
+    fi
+
+    if [[ "$(get_vm_state "$vm_name")" != "running" ]]; then
+        vm_run "$vm_name" ${dir_args[@]+"${dir_args[@]}"}
+    fi
+
+    if [[ "${SSH_KEY_CREATED:-false}" == "true" ]]; then
+        vm_sync_authorized_key "$vm_name"
+    fi
+
+    local initial_dir=""
+    if [[ -n "$primary_path" ]]; then
+        initial_dir="$(get_relative_directory_from_root "$primary_path" 2>/dev/null || true)"
+        debug "initial directory: ${initial_dir:-}"
+    fi
+
+    ssh_into_vm "$vm_name" "$primary_name" "$initial_dir"
+}
+
 show_version() {
     echo "clod version $VERSION"
     exit 0
@@ -1358,6 +1466,7 @@ case "${1:-}" in
         ;;
     shell|sh|s)
         unset COMMAND
+        IS_SHELL_COMMAND=true
         PROJECT_DIR="${2:-}"
         PROJECT_NAME="${3:-}"
         ;;
@@ -1395,6 +1504,25 @@ case "${1:-}" in
         ;;
 esac
 
+if [[ "${IS_SHELL_COMMAND:-}" == "true" ]]; then
+    if [[ -n "${PROJECT_DIR:-}" ]] && vm_instance_exists "$PROJECT_DIR"; then
+        vm_shell "$PROJECT_DIR"
+        exit 0
+    fi
+
+    if [[ -z "${PROJECT_DIR:-}" ]]; then
+        instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
+        if [[ "${instance_count:-0}" -eq 1 ]]; then
+            only_instance_name="$(vm_get_only_instance_name)"
+            vm_shell "$only_instance_name"
+            exit 0
+        elif [[ "${instance_count:-0}" -gt 1 ]]; then
+            vm_list
+            abort "Multiple instances exist. Specify name: clod shell <name>"
+        fi
+    fi
+fi
+
 # Decide whether sudo-setting changes require rebuild
 STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
 if [[ "${COMMAND:-}" == "status" ]]; then
@@ -1411,19 +1539,30 @@ fi
 
 # Resolve explicit command target argument
 if [[ -n "${PROJECT_DIR:-}" ]]; then
-    resolved_path="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || true)"
-    if [[ -d "$resolved_path" ]]; then
-        # PATH [NAME] form
-        add_project "$PROJECT_DIR" "$PROJECT_NAME"
-        SHOULD_SELECT_PROJECT=false
-    elif project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
+    if [[ "${IS_SHELL_COMMAND:-}" == "true" ]] && project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
         # NAME-only form
         PROJECT_NAME="$PROJECT_DIR"
         PROJECT_DIR="$project_path"
         SHOULD_SELECT_PROJECT=false
         set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
     else
-        abort "Error: Project not found ($PROJECT_DIR)"
+        resolved_path="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || true)"
+        if [[ -d "$resolved_path" ]]; then
+            # PATH [NAME] form
+            add_project "$PROJECT_DIR" "$PROJECT_NAME"
+            SHOULD_SELECT_PROJECT=false
+        elif project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
+            # NAME-only form
+            PROJECT_NAME="$PROJECT_DIR"
+            PROJECT_DIR="$project_path"
+            SHOULD_SELECT_PROJECT=false
+            set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
+        else
+            if [[ "${IS_SHELL_COMMAND:-}" == "true" ]]; then
+                abort "Error: project path or instance not found ($PROJECT_DIR)"
+            fi
+            abort "Error: Project not found ($PROJECT_DIR)"
+        fi
     fi
 fi
 
