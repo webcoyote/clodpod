@@ -83,6 +83,10 @@ OCI_VM_NAME="clodpod-oci-base"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
+SSH_DIR="$HOME/.ssh"
+SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
+SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
+SSH_KEY_CREATED=false
 
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-$MACOS_VERSION-$MACOS_FLAVOR:latest"
 debug "MacOS image: $MACOS_IMAGE"
@@ -139,6 +143,43 @@ resolve_physical_path() {
     else
         dir="$(builtin cd -P "$(dirname "$path")" 2>/dev/null && pwd -P)" || return 1
         echo "$dir/$(basename "$path")"
+    fi
+}
+
+array_contains() {
+    local needle="$1"
+    shift || true
+
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+vm_name_to_vm_name() {
+    printf 'clodpod-%s\n' "$1"
+}
+
+vm_name_reserved() {
+    case "$1" in
+        xcode|oci-base|xcode-base|tmp*|oci-tmp*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+vm_validate_name() {
+    local name="$1"
+
+    if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid instance name ($name)"
+    fi
+    if vm_name_reserved "$name"; then
+        abort "Error: reserved instance name ($name)"
     fi
 }
 
@@ -307,6 +348,35 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS instances (
+    name TEXT PRIMARY KEY,
+    vm_name TEXT UNIQUE NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS instance_dirs (
+    instance_name TEXT NOT NULL,
+    dir_name TEXT NOT NULL,
+    dir_path TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (instance_name, dir_name)
+);
+EOF
+}
+
+vm_instance_exists() {
+    local instance_name="$1"
+    local count
+    count=$(sqlite3 "$DB_FILE" <<EOF 2>/dev/null || echo 0
+SELECT COUNT(*) FROM instances WHERE name = '$(sql_escape "$instance_name")';
+EOF
+)
+    [[ "${count:-0}" -gt 0 ]]
+}
+
+vm_get_instance_vm_name() {
+    local instance_name="$1"
+    sqlite3 "$DB_FILE" <<EOF
+SELECT vm_name FROM instances WHERE name = '$(sql_escape "$instance_name")' LIMIT 1;
 EOF
 }
 
