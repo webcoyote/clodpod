@@ -481,6 +481,57 @@ SELECT vm_name FROM instances WHERE name = '$(sql_escape "$instance_name")' LIMI
 EOF
 }
 
+vm_get_instance_count() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT COUNT(*) FROM instances;
+EOF
+}
+
+vm_get_instance_names() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT name FROM instances ORDER BY created_at DESC, name ASC;
+EOF
+}
+
+vm_get_only_instance_name() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT name FROM instances ORDER BY created_at DESC, name ASC LIMIT 1;
+EOF
+}
+
+vm_get_instance_dirs() {
+    local instance_name="$1"
+    sqlite3 -separator '|' "$DB_FILE" <<EOF
+SELECT dir_name, dir_path, is_primary
+FROM instance_dirs
+WHERE instance_name = '$(sql_escape "$instance_name")'
+ORDER BY is_primary DESC, rowid ASC;
+EOF
+}
+
+vm_find_blocking_running_vm() {
+    local allowed_vm_name="${1:-}"
+    local running_vms
+    running_vms=$(tart list --format json | jq -r '.[] | select(.State == "running") | .Name')
+
+    if [[ -n "$running_vms" ]]; then
+        local vm_name
+        while IFS= read -r vm_name; do
+            case "$vm_name" in
+                "$allowed_vm_name"|"$BASE_VM_NAME"|"$OCI_VM_NAME"|clodpod-tmp*|clodpod-oci-tmp*)
+                    continue
+                    ;;
+                clodpod-*)
+                    echo "$vm_name"
+                    return 0
+                    ;;
+            esac
+        done <<< "$running_vms"
+    fi
+
+    return 1
+}
+
 get_setting() {
     local key="$1"
     local default_value="${2:-}"
@@ -980,35 +1031,123 @@ EOF
     fi
 }
 
+get_relative_directory_from_root() {
+    local root_path="$1"
+    local current_dir
+    local resolved_root
+
+    current_dir="$(resolve_physical_path "$PWD" 2>/dev/null || return 1)"
+    resolved_root="$(resolve_physical_path "$root_path" 2>/dev/null || return 1)"
+
+    if [[ "$current_dir" == "$resolved_root" ]] || [[ "$current_dir" == "$resolved_root"/* ]]; then
+        local relative_path="${current_dir#"$resolved_root"}"
+        relative_path="${relative_path#/}"
+        echo "$relative_path"
+        return 0
+    fi
+
+    return 1
+}
+
 # Check if current working directory is inside active project and returns RELATIVE_PATH
 # Returns 0 if inside the project, 1 otherwise
 get_relative_project_directory() {
     local project_name
     project_name="$1"
-    local current_dir
-    current_dir="$(resolve_physical_path "$PWD")"
-    
     local path
     path=$(sqlite3 "$DB_FILE" <<EOF || return 1
 SELECT path FROM projects WHERE name = '$(sql_escape "$project_name")' AND active > 0 LIMIT 1;
 EOF
 )
-    
-    if [[ -n "$path" ]]; then
-        # Check if current directory is inside this project
-        path="$(resolve_physical_path "$path" || true)"
-        if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
-            # Calculate relative path from project root
-            local relative_path="${current_dir#"$path"}"
-            relative_path="${relative_path#/}"  # Remove leading slash if present
 
-            # Output the results separated by pipe
-            echo "${relative_path}"
-            return 0
-        fi
+    [[ -n "$path" ]] || return 1
+    get_relative_directory_from_root "$path"
+}
+
+get_local_network_error() {
+    local vm_name="$1"
+    local term_program="${TERM_PROGRAM:-e.g. ghostty, kitty, iTerm, WezTerm}"
+
+    cat <<EOF
+
+ERROR: unable to connect to $vm_name.
+
+Your terminal app ($term_program)
+has not been granted "Local Network" access rights,
+which are required to SSH to the Virtual Machine.
+
+- Open "System Settings.app"
+- Navigate to "Privacy & Security"
+- Select "Local Network"
+- Grant access to your terminal application
+
+EOF
+}
+
+encode_command_args() {
+    local command_args_b64=""
+    if [[ ${#COMMAND_ARGS[@]} -gt 0 ]]; then
+        command_args_b64="$(printf '%s\0' "${COMMAND_ARGS[@]}" | base64 | tr -d '\n')"
     fi
-    
-    return 1
+    echo "$command_args_b64"
+}
+
+get_vm_ip_or_abort() {
+    local vm_name="$1"
+
+    debug "Checking $vm_name IP connectivity"
+    local ipaddr
+    ipaddr="$(tart ip --wait 20 "$vm_name")"
+    if ! nc -z "$ipaddr" 22 ; then
+        error "$(get_local_network_error "$vm_name")"
+        read -n 1 -s -r -p "Press any key to open System Settings"
+        open "/System/Library/PreferencePanes/Security.prefPane"
+    fi
+
+    echo "$ipaddr"
+}
+
+ssh_into_vm() {
+    local vm_name="$1"
+    local project_name="${2:-}"
+    local initial_dir="${3:-}"
+    local ipaddr
+    local command_args_b64
+
+    ipaddr="$(get_vm_ip_or_abort "$vm_name")"
+    debug "Connect to $vm_name (ssh clodpod@$ipaddr)"
+
+    command_args_b64="$(encode_command_args)"
+
+    exec ssh \
+        -q \
+        -tt \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "$SSH_KEYFILE_PRIV" \
+        "clodpod@$ipaddr" \
+        /usr/bin/env \
+            "TERM=xterm-256color" \
+            "PROJECT=$project_name" \
+            "INITIAL_DIR=$initial_dir" \
+            "COMMAND=${COMMAND:-}" \
+            "COMMAND_ARGS_B64=$command_args_b64" \
+            zsh --login || true
+}
+
+vm_sync_authorized_key() {
+    local vm_name="$1"
+    local pub_key_b64
+
+    pub_key_b64="$(base64 < "$SSH_KEYFILE_PUB" | tr -d '\n')"
+    tart exec -it "$vm_name" \
+        "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
+        bash -lc '
+            sudo install -d -m 700 -o clodpod -g clodpod /Users/clodpod/.ssh
+            printf "%s" "$PUB_KEY_B64" | /usr/bin/base64 -D | sudo tee /Users/clodpod/.ssh/authorized_keys >/dev/null
+            sudo chown clodpod:clodpod /Users/clodpod/.ssh/authorized_keys
+            sudo chmod 600 /Users/clodpod/.ssh/authorized_keys
+        '
 }
 
 show_version() {
