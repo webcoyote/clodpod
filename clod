@@ -157,32 +157,6 @@ array_contains() {
     return 1
 }
 
-vm_name_to_vm_name() {
-    printf 'clodpod-%s\n' "$1"
-}
-
-vm_name_reserved() {
-    case "$1" in
-        xcode|oci-base|xcode-base|tmp*|oci-tmp*)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-vm_validate_name() {
-    local name="$1"
-
-    if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
-        abort "Error: invalid instance name ($name)"
-    fi
-    if vm_name_reserved "$name"; then
-        abort "Error: reserved instance name ($name)"
-    fi
-}
-
 ensure_ssh_key() {
     SSH_KEY_CREATED=false
     if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
@@ -263,6 +237,32 @@ refresh_guest_home() {
     mkdir -p "$(dirname "$guest_known_hosts")"
     ssh-keyscan github.com > "$guest_known_hosts"
     chmod 600 "$guest_known_hosts"
+}
+
+vm_name_to_vm_name() {
+    printf 'clodpod-%s\n' "$1"
+}
+
+vm_name_reserved() {
+    case "$1" in
+        xcode|oci-base|xcode-base|tmp*|oci-tmp*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+vm_validate_name() {
+    local name="$1"
+
+    if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid instance name ($name)"
+    fi
+    if vm_name_reserved "$name"; then
+        abort "Error: reserved instance name ($name)"
+    fi
 }
 
 install_tools () {
@@ -1258,6 +1258,20 @@ vm_shell() {
     ssh_into_vm "$vm_name" "$primary_name" "$initial_dir"
 }
 
+vm_stop_instance() {
+    local instance_name="$1"
+    local vm_name
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    if ! get_vm_exists "$vm_name"; then
+        return 0
+    fi
+
+    stop_vm "$vm_name"
+}
+
 vm_delete_instance_records() {
     local instance_name="$1"
 
@@ -1319,20 +1333,6 @@ list_all() {
     fi
 }
 
-vm_stop_instance() {
-    local instance_name="$1"
-    local vm_name
-
-    vm_name="$(vm_get_instance_vm_name "$instance_name")"
-    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
-
-    if ! get_vm_exists "$vm_name"; then
-        return 0
-    fi
-
-    stop_vm "$vm_name"
-}
-
 show_version() {
     echo "clod version $VERSION"
     exit 0
@@ -1377,13 +1377,25 @@ show_help() {
     echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
     echo "  cu, cursor [PATH] [NAME]  Run Cursor Agent"
     echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
-    echo "  s,  shell  [PATH] [NAME]  Run zsh shell"
+    echo "  cr, create NAME [--dir name:path ...]"
+    echo "                           Create a named VM from the base image"
+    echo "  s,  shell  [NAME|PATH] [NAME]"
+    echo "                           Run zsh shell for a named VM or legacy project"
     echo "  a,  add PATH [NAME]       Add a new project"
     echo "  rm, remove <identifier>   Remove project by name or path"
-    echo "  ls, list                  List all projects"
+    echo "  ls, list                  List named instances and projects"
     echo "  st, status                Show sudo, Layer 0/base/dst state, and image provenance"
     echo "      start                 Start virtual machine"
-    echo "      stop                  Stop virtual machine"
+    echo "      stop [NAME]           Stop a named VM or all clodpod VMs"
+    echo "      destroy NAME          Delete a named VM"
+    echo "      destroy --all         Delete all named VMs"
+    echo ""
+    echo "Examples:"
+    echo "  clod create dev --dir project:/Users/me/src/app --dir libs:/Users/me/src/libs"
+    echo "  clod shell dev"
+    echo "  clod shell /Users/me/src/app"
+    echo "  clod stop dev"
+    echo "  clod destroy --all"
     echo ""
     echo "Arguments after -- are passed to the command (claude, codex, cursor, gemini, shell)"
 }
