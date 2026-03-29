@@ -909,10 +909,16 @@ vm_create() {
         abort "Error: tart VM already exists outside the database ($final_vm_name)"
     fi
 
+    local create_ram_mb=""
     local dir_names=()
     local dir_paths=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --ram)
+                [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
+                create_ram_mb="$(parse_ram_size "$2")"
+                shift 2
+                ;;
             --dir)
                 [[ $# -ge 2 ]] || abort "Error: --dir requires name:path"
 
@@ -980,9 +986,13 @@ vm_create() {
     TMP_VM_NAME=""
 
     local sql
+    local ram_sql="NULL"
+    if [[ -n "$create_ram_mb" ]]; then
+        ram_sql="$create_ram_mb"
+    fi
     sql="BEGIN IMMEDIATE;
-INSERT INTO instances (name, vm_name, created_at)
-VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', datetime('now'));"
+INSERT INTO instances (name, vm_name, ram_mb, created_at)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, datetime('now'));"
 
     i=0
     while [[ "$i" -lt "${#dir_names[@]}" ]]; do
@@ -1424,8 +1434,14 @@ vm_shell() {
 
     vm_name="$(vm_get_instance_vm_name "$instance_name")"
     [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
-    effective_ram="$(vm_get_instance_ram_mb "$instance_name")"
-    [[ "$effective_ram" =~ ^[0-9]+$ ]] || abort "Error: invalid RAM setting for instance $instance_name ($effective_ram)"
+
+    # RAM priority: --ram override > stored ram_mb > 0 (dynamic/remaining budget)
+    if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
+        effective_ram="$SHELL_RAM_OVERRIDE"
+    else
+        effective_ram="$(vm_get_instance_ram_mb "$instance_name")"
+        [[ "$effective_ram" =~ ^[0-9]+$ ]] || effective_ram=0
+    fi
 
     if ! get_vm_exists "$vm_name"; then
         abort "Error: VM missing for instance $instance_name ($vm_name). Destroy and recreate it."
@@ -1572,6 +1588,7 @@ init_db
 # Parse command line
 ###############################################################################
 NO_GRAPHICS="${NO_GRAPHICS:-}"
+SHELL_RAM_OVERRIDE=""
 SHOULD_SELECT_PROJECT=true
 ALLOW_SUDO=
 
@@ -1712,6 +1729,11 @@ while [[ $# -gt 0 ]]; do
             NO_GRAPHICS=true
             shift
             ;;
+        --ram)
+            [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
+            SHELL_RAM_OVERRIDE="$(parse_ram_size "$2")"
+            shift 2
+            ;;
         --rebuild-base)
             REBUILD_BASE=true
             shift
@@ -1841,6 +1863,11 @@ if [[ "${IS_SHELL_COMMAND:-}" == "true" ]]; then
             vm_list
             abort "Multiple instances exist. Specify name: clod shell <name>"
         fi
+    fi
+
+    # --ram is only supported with named instances
+    if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
+        abort "Error: --ram is only supported with named VM shell"
     fi
 fi
 
