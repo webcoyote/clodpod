@@ -17,7 +17,8 @@ Key features:
 - Open multiple AI agents sessions and shell prompts, or use the GUI
 - Headless mode for CI/CD workflows with `--no-graphics`
 - Includes Xcode and common development tools; you can add your own tools too
-- Fast rebuild and relaunch using a two-layer caching system
+- Fast rebuild and relaunch using a three-layer APFS CoW caching system
+- Named VM instances for switching between projects or worktree branches
 
 
 Usage:
@@ -74,6 +75,33 @@ Usage:
     clod add "THIRD PROJECT DIRECTORY"          # also "clod a ..."
     clod remove "FOURTH PROJECT DIRECTORY"      # also "clod rm ..."
     clod list                                   # also "clod l", "clod ls"
+
+
+## Named VM instances
+
+Create named VMs to keep separate environments for different projects
+or worktree branches. Each is a cheap APFS CoW clone of the base VM.
+
+    # Create a named VM with mounted directories
+    clod create myproject --dir project:/path/to/project
+    clod create feature-a --dir work:/path/to/repo/.worktrees/feature-a
+
+    # SSH into a named VM
+    clod shell myproject
+
+    # Only one named VM can run at a time
+    clod shell feature-a    # error if myproject is running
+
+    # Stop and switch
+    clod stop myproject
+    clod shell feature-a
+
+    # List named VMs
+    clod list
+
+    # Clean up
+    clod destroy myproject
+    clod destroy --all
 
 
 ## macOS versions
