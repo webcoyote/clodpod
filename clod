@@ -591,6 +591,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS instances (
     name TEXT PRIMARY KEY,
     vm_name TEXT UNIQUE NOT NULL,
+    ram_mb INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS instance_dirs (
@@ -601,6 +602,13 @@ CREATE TABLE IF NOT EXISTS instance_dirs (
     PRIMARY KEY (instance_name, dir_name)
 );
 EOF
+
+    # Migration: add ram_mb column to existing instances tables
+    local has_ram_mb
+    has_ram_mb=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ram_mb') || true
+    if [[ "$has_ram_mb" -eq 0 ]]; then
+        sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ram_mb INTEGER;"
+    fi
 }
 
 vm_instance_exists() {
