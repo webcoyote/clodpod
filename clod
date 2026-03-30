@@ -1380,28 +1380,45 @@ vm_sync_authorized_key() {
 vm_list() {
     local result
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
-SELECT name, vm_name FROM instances ORDER BY created_at DESC, name ASC;
+SELECT name, vm_name, ram_mb FROM instances ORDER BY created_at DESC, name ASC;
 EOF
 )
 
     [[ -n "$result" ]] || return 1
 
+    # Memory budget header
+    local budget_mb
+    budget_mb="$(get_memory_budget_mb)"
+    local host_ram_mb
+    host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+    echo "Memory budget: ${budget_mb} MB (of ${host_ram_mb} MB)"
+    echo ""
+
     echo "INSTANCES"
-    printf "%-20s %-12s %-15s %s\n" "NAME" "STATE" "IP" "DIRS"
+    printf "%-20s %-10s %-12s %-15s %s\n" "NAME" "RAM (MB)" "STATE" "IP" "DIRS"
 
     local instance_name
     local vm_name
-    while IFS='|' read -r instance_name vm_name; do
+    local stored_ram
+    while IFS='|' read -r instance_name vm_name stored_ram; do
         local state
         local ipaddr="-"
+        local ram_display
         local dir_rows
         local dirs=""
 
         state="$(get_vm_state "$vm_name")"
         [[ -n "$state" ]] || state="not created"
+
+        # RAM display: running → actual from tart get; stopped → stored or (budget)
         if [[ "$state" == "running" ]]; then
             ipaddr="$(tart ip "$vm_name" 2>/dev/null || echo "-")"
             [[ -n "$ipaddr" ]] || ipaddr="-"
+            ram_display="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
+        elif [[ -n "$stored_ram" ]] && [[ "$stored_ram" != "0" ]]; then
+            ram_display="$stored_ram"
+        else
+            ram_display="(budget)"
         fi
 
         dir_rows="$(vm_get_instance_dirs "$instance_name")"
@@ -1422,7 +1439,7 @@ EOF
         fi
         [[ -n "$dirs" ]] || dirs="-"
 
-        printf "%-20s %-12s %-15s %s\n" "$instance_name" "$state" "$ipaddr" "$dirs"
+        printf "%-20s %-10s %-12s %-15s %s\n" "$instance_name" "$ram_display" "$state" "$ipaddr" "$dirs"
     done <<< "$result"
 }
 
