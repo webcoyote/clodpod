@@ -1390,14 +1390,6 @@ EOF
 
     [[ -n "$result" ]] || return 1
 
-    # Memory budget header
-    local budget_mb
-    budget_mb="$(get_memory_budget_mb)"
-    local host_ram_mb
-    host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
-    echo "Memory budget: ${budget_mb} MB (of ${host_ram_mb} MB)"
-    echo ""
-
     echo "INSTANCES"
     printf "%-20s %-10s %-12s %-15s %s\n" "NAME" "RAM (MB)" "STATE" "IP" "DIRS"
 
@@ -1667,6 +1659,13 @@ vm_set() {
 }
 
 list_all() {
+    local budget_mb
+    budget_mb="$(get_memory_budget_mb)"
+    local host_ram_mb
+    host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+    echo "Memory budget: ${budget_mb} MB (of ${host_ram_mb} MB)"
+    echo ""
+
     if vm_list; then
         echo ""
         echo "PROJECTS"
