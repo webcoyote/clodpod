@@ -393,11 +393,7 @@ with_launch_lock() {
 
     (
         trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
-        if [[ "$#" -eq 1 ]]; then
-            eval "$1"
-        else
-            "$@"
-        fi
+        "$@"
     )
 }
 
@@ -481,32 +477,33 @@ wait_vm_running () {
 
 run_vm () {
     local vm_name="$1"
-    local ram_mb="${2:-}"
+    local ram_mb="${2:-0}"
     local already_running_status=200
     local launch_status=0
     debug "Running $vm_name"
 
     # Get directories to map into the VM
-    local args=()
+    local run_args=()
     while IFS= read -r -d '' arg; do
-        args+=("$arg")
+        run_args+=("$arg")
     done < <(get_map_directories)
-    [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
+    [[ "${NO_GRAPHICS:-}" == "" ]] || run_args+=("--no-graphics")
 
-    if with_launch_lock '
+    _run_vm_locked() {
         local current_state
-        local resolved_ram
-
         current_state="$(get_vm_state_strict "$vm_name")"
         if [[ "$current_state" == "running" ]]; then
             exit "$already_running_status"
         fi
 
+        local resolved_ram
         resolved_ram="$(resolve_and_check_memory_budget "$ram_mb")"
         tart set "$vm_name" --memory "$resolved_ram"
-        tart run "${args[@]}" "$vm_name" </dev/null &>/dev/null & disown
+        tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
         wait_vm_running "$vm_name"
-    '; then
+    }
+
+    if with_launch_lock _run_vm_locked; then
         launch_status=0
     else
         launch_status=$?
@@ -529,35 +526,42 @@ EOF
 
 vm_run () {
     local vm_name="$1"
-    local ram_mb="${2:-}"
+    local ram_mb="${2:-0}"
     local exclude_vm="${3:-}"
     local already_running_status=200
     local launch_status=0
     if [[ "$#" -ge 3 ]]; then
         shift 3
-    else
+    elif [[ "$#" -ge 2 ]]; then
         shift 2
+    else
+        shift 1
     fi
 
     debug "Running $vm_name"
 
-    local args=("$@")
-    [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
+    local run_args=("$@")
+    [[ "${NO_GRAPHICS:-}" == "" ]] || run_args+=("--no-graphics")
 
-    if with_launch_lock '
+    _vm_run_locked() {
         local current_state
-        local resolved_ram
-
         current_state="$(get_vm_state_strict "$vm_name")"
         if [[ "$current_state" == "running" ]]; then
             exit "$already_running_status"
         fi
 
+        local resolved_ram
         resolved_ram="$(resolve_and_check_memory_budget "$ram_mb" "$exclude_vm")"
         tart set "$vm_name" --memory "$resolved_ram"
-        tart run "${args[@]}" "$vm_name" </dev/null &>/dev/null & disown
+        if [[ "${#run_args[@]}" -gt 0 ]]; then
+            tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
+        else
+            tart run "$vm_name" </dev/null &>/dev/null & disown
+        fi
         wait_vm_running "$vm_name"
-    '; then
+    }
+
+    if with_launch_lock _vm_run_locked; then
         launch_status=0
     else
         launch_status=$?
