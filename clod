@@ -1560,6 +1560,91 @@ vm_destroy() {
     vm_destroy_instance "$1"
 }
 
+vm_set() {
+    local ram_value=""
+    local ram_name=""
+    local max_memory_value=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ram)
+                [[ $# -ge 2 ]] || abort "Usage: clod set --ram <size|default> <name>"
+                ram_value="$2"
+                shift 2
+                if [[ $# -ge 1 ]] && [[ "$1" != -* ]]; then
+                    ram_name="$1"
+                    shift
+                else
+                    abort "Usage: clod set --ram <size|default> <name>"
+                fi
+                ;;
+            --max-memory)
+                [[ $# -ge 2 ]] || abort "Usage: clod set --max-memory <size|default>"
+                max_memory_value="$2"
+                shift 2
+                ;;
+            *)
+                abort "Error: unknown set option ($1)"
+                ;;
+        esac
+    done
+
+    if [[ -n "$ram_value" ]]; then
+        [[ -n "$ram_name" ]] || abort "Usage: clod set --ram <size|default> <name>"
+        if ! vm_instance_exists "$ram_name"; then
+            abort "Error: instance not found ($ram_name)"
+        fi
+
+        if [[ "$ram_value" == "default" ]]; then
+            sqlite3 "$DB_FILE" "UPDATE instances SET ram_mb = NULL WHERE name = '$(sql_escape "$ram_name")';"
+            echo "Reset RAM for $ram_name to dynamic (budget)"
+        else
+            local ram_mb
+            ram_mb="$(parse_ram_size "$ram_value")"
+            sqlite3 "$DB_FILE" "UPDATE instances SET ram_mb = $ram_mb WHERE name = '$(sql_escape "$ram_name")';"
+            echo "Set RAM for $ram_name to ${ram_mb} MB"
+        fi
+
+        # Warn if instance is running
+        local vm_name
+        vm_name="$(vm_get_instance_vm_name "$ram_name")"
+        if [[ -n "$vm_name" ]] && [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+            echo >&2 "Instance $ram_name is running — change takes effect on next launch"
+        fi
+    fi
+
+    if [[ -n "$max_memory_value" ]]; then
+        if [[ "$max_memory_value" == "default" ]]; then
+            sqlite3 "$DB_FILE" "DELETE FROM settings WHERE key = 'max_memory_mb';"
+            echo "Reset memory budget to default (5/8 of host RAM)"
+        else
+            local budget_mb
+            budget_mb="$(parse_ram_size "$max_memory_value")"
+
+            # Validate against host RAM
+            local host_ram_mb
+            host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+            if [[ "$budget_mb" -gt "$host_ram_mb" ]]; then
+                abort "Budget (${budget_mb} MB) exceeds host RAM (${host_ram_mb} MB)"
+            fi
+
+            set_setting "max_memory_mb" "$budget_mb"
+            echo "Set memory budget to ${budget_mb} MB"
+
+            # Warn if current usage exceeds new budget
+            local used_mb
+            used_mb="$(get_running_vms_ram_mb "")"
+            if [[ "$used_mb" -gt "$budget_mb" ]]; then
+                echo >&2 "Current usage (${used_mb} MB) exceeds new budget (${budget_mb} MB). No running VMs affected — budget enforced on next launch."
+            fi
+        fi
+    fi
+
+    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]]; then
+        abort "Usage: clod set [--ram <size|default> <name>] [--max-memory <size|default>]"
+    fi
+}
+
 list_all() {
     if vm_list; then
         echo ""
@@ -1687,6 +1772,14 @@ for arg in "$@"; do
             done
             shift
             vm_destroy "$@"
+            exit 0
+            ;;
+        set)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            vm_set "$@"
             exit 0
             ;;
         *)
