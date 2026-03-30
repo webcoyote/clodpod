@@ -498,6 +498,7 @@ run_vm () {
 
         local resolved_ram
         resolved_ram="$(resolve_and_check_memory_budget "$ram_mb")"
+        [[ -n "$resolved_ram" ]] || exit 1
         tart set "$vm_name" --memory "$resolved_ram"
         tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
         wait_vm_running "$vm_name"
@@ -552,6 +553,7 @@ vm_run () {
 
         local resolved_ram
         resolved_ram="$(resolve_and_check_memory_budget "$ram_mb" "$exclude_vm")"
+        [[ -n "$resolved_ram" ]] || exit 1
         tart set "$vm_name" --memory "$resolved_ram"
         if [[ "${#run_args[@]}" -gt 0 ]]; then
             tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
