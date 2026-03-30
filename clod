@@ -1429,7 +1429,6 @@ EOF
 vm_shell() {
     local instance_name="$1"
     local vm_name
-    local blocking_vm
     local effective_ram
 
     vm_name="$(vm_get_instance_vm_name "$instance_name")"
@@ -1445,11 +1444,6 @@ vm_shell() {
 
     if ! get_vm_exists "$vm_name"; then
         abort "Error: VM missing for instance $instance_name ($vm_name). Destroy and recreate it."
-    fi
-
-    blocking_vm="$(vm_find_blocking_running_vm "$vm_name" || true)"
-    if [[ -n "$blocking_vm" ]]; then
-        abort "Error: another clodpod VM is running ($blocking_vm). Stop it first with 'clod stop'."
     fi
 
     ensure_ssh_key
@@ -1477,10 +1471,15 @@ vm_shell() {
         done <<< "$dir_rows"
     fi
 
-    if [[ "$(get_vm_state "$vm_name")" != "running" ]]; then
-        if ! vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"}; then
-            :
+    if [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+        # VM already running — warn if --ram override given, then reconnect
+        if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
+            local current_ram
+            current_ram="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
+            echo >&2 "$instance_name is already running with ${current_ram} MB RAM. --ram override ignored for running VM."
         fi
+    else
+        vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
     fi
 
     if [[ "${SSH_KEY_CREATED:-false}" == "true" ]]; then
