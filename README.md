@@ -19,6 +19,7 @@ Key features:
 - Includes Xcode and common development tools; you can add your own tools too
 - Fast rebuild and relaunch using a three-layer APFS CoW caching system
 - Named VM instances for switching between projects or worktree branches
+- Parallel VM execution with configurable memory budget
 
 
 Usage:
@@ -89,12 +90,8 @@ or worktree branches. Each is a cheap APFS CoW clone of the base VM.
     # SSH into a named VM
     clod shell myproject
 
-    # Only one named VM can run at a time
-    clod shell feature-a    # error if myproject is running
-
-    # Stop and switch
-    clod stop myproject
-    clod shell feature-a
+    # Multiple VMs can run simultaneously if memory budget allows
+    clod shell feature-a    # starts alongside myproject
 
     # List named VMs
     clod list
@@ -102,6 +99,27 @@ or worktree branches. Each is a cheap APFS CoW clone of the base VM.
     # Clean up
     clod destroy myproject
     clod destroy --all
+
+## Memory budget
+
+By default, VMs share a memory budget of 5/8 of host RAM. You can configure
+per-instance RAM and the total budget:
+
+    # Set RAM for a specific instance (takes effect on next launch)
+    clod set --ram 8G myproject
+
+    # Set workspace memory budget
+    clod set --max-memory 16G
+
+    # Create with specific RAM
+    clod create dev --ram 10G --dir project:/path
+
+    # Override RAM for one session
+    clod shell --ram 6G dev
+
+    # Reset to dynamic (use remaining budget)
+    clod set --ram default dev
+    clod set --max-memory default
 
 
 ## macOS versions
