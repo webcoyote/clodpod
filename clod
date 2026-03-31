@@ -897,7 +897,7 @@ case "${1:-}" in
     cursor|cu|ca)
         COMMAND=cursor
         PROJECT_DIR="${2:-}"
-        PROJECT_DIR="${3:-}"
+        PROJECT_NAME="${3:-}"
         ;;
     gemini|gem|g)
         COMMAND=gemini
