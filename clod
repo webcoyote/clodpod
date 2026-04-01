@@ -732,28 +732,6 @@ ORDER BY is_primary DESC, rowid ASC;
 EOF
 }
 
-vm_find_blocking_running_vm() {
-    local allowed_vm_name="${1:-}"
-    local running_vms
-    running_vms=$(tart list --format json | jq -r '.[] | select(.State == "running") | .Name')
-
-    if [[ -n "$running_vms" ]]; then
-        local vm_name
-        while IFS= read -r vm_name; do
-            case "$vm_name" in
-                "$allowed_vm_name"|"$BASE_VM_NAME"|"$OCI_VM_NAME"|clodpod-tmp*|clodpod-oci-tmp*)
-                    continue
-                    ;;
-                clodpod-*)
-                    echo "$vm_name"
-                    return 0
-                    ;;
-            esac
-        done <<< "$running_vms"
-    fi
-
-    return 1
-}
 
 get_setting() {
     local key="$1"
