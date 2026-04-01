@@ -160,7 +160,8 @@ array_contains() {
 ensure_ssh_key() {
     SSH_KEY_CREATED=false
     if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
-        mkdir -p "$SSH_DIR"
+        # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+        mkdir -m 700 -p "$SSH_DIR"
         ssh-keygen -t ed25519 \
             -f "$SSH_KEYFILE_PRIV" \
             -N "" \
@@ -381,6 +382,7 @@ resolve_and_check_memory_budget() {
     echo "$resolved_mb"
 }
 
+# shellcheck disable=SC2329 # `This function is never invoked. # yes it is
 with_launch_lock() {
     local lock_dir="$HOME/.clodpod.launch.lock"
     local max_wait=30
@@ -547,6 +549,7 @@ vm_run () {
     local run_args=("$@")
     [[ "${NO_GRAPHICS:-}" == "" ]] || run_args+=("--no-graphics")
 
+    # shellcheck disable=SC2329 # `This function is never invoked. # yes it is
     _vm_run_locked() {
         local current_state
         current_state="$(get_vm_state_strict "$vm_name")"
@@ -1354,6 +1357,7 @@ vm_sync_authorized_key() {
     local pub_key_b64
 
     pub_key_b64="$(base64 < "$SSH_KEYFILE_PUB" | tr -d '\n')"
+    # shellcheck disable=SC2016 #  Expressions don't expand in single quotes, use double quotes for that.
     tart exec -it "$vm_name" \
         "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
         bash -lc '
