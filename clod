@@ -176,27 +176,28 @@ ensure_ssh_key() {
 # Push updated authorized_keys to all named instances that exist as tart VMs.
 # Temporarily starts stopped VMs, pushes key, stops them again.
 sync_ssh_key_to_all_instances() {
-    local instance_names
-    instance_names="$(sqlite3 "$DB_FILE" "SELECT vm_name FROM instances;" 2>/dev/null)" || return 0
-    [[ -n "$instance_names" ]] || return 0
+    local instance_rows
+    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0) FROM instances;" 2>/dev/null)" || return 0
+    [[ -n "$instance_rows" ]] || return 0
 
     local pub_key
     pub_key="$(cat "$SSH_KEYFILE_PUB")"
 
     # Also sync to legacy clodpod-xcode if it exists
-    if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_names" | grep -q "^${DST_VM_NAME}$"; then
-        instance_names="${instance_names:+$instance_names
-}$DST_VM_NAME"
+    if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
+        instance_rows="${instance_rows:+$instance_rows
+}${DST_VM_NAME}|0"
     fi
 
-    while IFS= read -r vm; do
+    local vm ram_mb
+    while IFS='|' read -r vm ram_mb; do
         if ! get_vm_exists "$vm"; then
             continue
         fi
         local was_stopped=false
         if [[ "$(get_vm_state "$vm")" != "running" ]]; then
             was_stopped=true
-            if ! (vm_run "$vm" 4096 ""); then
+            if ! (vm_run "$vm" "$ram_mb" ""); then
                 warn "Could not start $vm for SSH key sync — skipping"
                 continue
             fi
@@ -208,7 +209,7 @@ sync_ssh_key_to_all_instances() {
         if [[ "$was_stopped" == "true" ]]; then
             tart stop "$vm" 2>/dev/null || true
         fi
-    done <<< "$instance_names"
+    done <<< "$instance_rows"
 }
 
 refresh_guest_home() {
@@ -953,7 +954,7 @@ vm_create() {
         i=$((i + 1))
     done
     vm_args+=("--dir" "__install:$WORKSPACE/guest")
-    vm_run "$TMP_VM_NAME" 4096 "" "${vm_args[@]}"
+    vm_run "$TMP_VM_NAME" 0 "" "${vm_args[@]}"
 
     trace "Running configure.sh..."
     if ! tart exec -it "$TMP_VM_NAME" \
@@ -2163,7 +2164,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
 
     trace "Cloning $OCI_VM_NAME to $TMP_VM_NAME..."
     clone_vm "$OCI_VM_NAME" "$TMP_VM_NAME"
-    run_vm "$TMP_VM_NAME" 4096
+    run_vm "$TMP_VM_NAME" 0
 
     trace "Running install.sh..."
     INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=$ALLOW_SUDO" )
@@ -2216,7 +2217,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         clone_vm "$TMP_VM_NAME" "$BASE_VM_NAME"
     else
         clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
-        run_vm "$TMP_VM_NAME" 4096
+        run_vm "$TMP_VM_NAME" 0
     fi
 
     trace "Running configure.sh..."
