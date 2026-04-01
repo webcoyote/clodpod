@@ -1672,7 +1672,6 @@ init_db
 # Parse command line
 ###############################################################################
 NO_GRAPHICS="${NO_GRAPHICS:-}"
-SHELL_RAM_OVERRIDE=""
 SHOULD_SELECT_PROJECT=true
 ALLOW_SUDO=
 
@@ -1788,6 +1787,56 @@ for arg in "$@"; do
             vm_set "$@"
             exit 0
             ;;
+        shell|sh|s)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            # Parse shell args: [--ram SIZE] [target] [-- cmd...]
+            _shell_ram=""
+            _shell_args=()
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --ram)
+                        [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
+                        _shell_ram="$(parse_ram_size "$2")"
+                        shift 2
+                        ;;
+                    --)
+                        _shell_args+=("$@")
+                        break
+                        ;;
+                    *)
+                        _shell_args+=("$1")
+                        shift
+                        ;;
+                esac
+            done
+            _shell_target="${_shell_args[0]:-}"
+            # Dispatch: named instance, auto-select, or fall through to legacy
+            if [[ -n "$_shell_target" ]] && vm_instance_exists "$_shell_target"; then
+                SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_shell_target"
+                exit 0
+            fi
+            if [[ -z "$_shell_target" ]]; then
+                _instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
+                if [[ "${_instance_count:-0}" -eq 1 ]]; then
+                    _only_name="$(vm_get_only_instance_name)"
+                    SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_only_name"
+                    exit 0
+                elif [[ "${_instance_count:-0}" -gt 1 ]]; then
+                    vm_list
+                    abort "Multiple instances exist. Specify name: clod shell <name>"
+                fi
+            fi
+            # --ram not supported on legacy shell
+            if [[ -n "$_shell_ram" ]]; then
+                abort "Error: --ram is only supported with named VM shell"
+            fi
+            # Fall through to legacy: put args back for global parser
+            set -- shell ${_shell_args[@]+"${_shell_args[@]}"}
+            break
+            ;;
         *)
             break
             ;;
@@ -1826,11 +1875,6 @@ while [[ $# -gt 0 ]]; do
         --no-graphics)
             NO_GRAPHICS=true
             shift
-            ;;
-        --ram)
-            [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
-            SHELL_RAM_OVERRIDE="$(parse_ram_size "$2")"
-            shift 2
             ;;
         --rebuild-base)
             REBUILD_BASE=true
@@ -1945,29 +1989,8 @@ case "${1:-}" in
         ;;
 esac
 
-if [[ "${IS_SHELL_COMMAND:-}" == "true" ]]; then
-    if [[ -n "${PROJECT_DIR:-}" ]] && vm_instance_exists "$PROJECT_DIR"; then
-        vm_shell "$PROJECT_DIR"
-        exit 0
-    fi
-
-    if [[ -z "${PROJECT_DIR:-}" ]]; then
-        instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
-        if [[ "${instance_count:-0}" -eq 1 ]]; then
-            only_instance_name="$(vm_get_only_instance_name)"
-            vm_shell "$only_instance_name"
-            exit 0
-        elif [[ "${instance_count:-0}" -gt 1 ]]; then
-            vm_list
-            abort "Multiple instances exist. Specify name: clod shell <name>"
-        fi
-    fi
-
-    # --ram is only supported with named instances
-    if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
-        abort "Error: --ram is only supported with named VM shell"
-    fi
-fi
+# Named instance shell dispatch is handled in early-dispatch above.
+# Legacy shell (path/project) falls through to here.
 
 # Decide whether sudo-setting changes require rebuild
 STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
