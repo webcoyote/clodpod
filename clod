@@ -2253,18 +2253,14 @@ which are required to SSH to the Virtual Machine.
 EOF
 
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
-    if ! run_vm "$DST_VM_NAME" 0; then
-        :
-    fi
+    run_vm "$DST_VM_NAME" 0 || true
 elif ! check_projects_active ; then
     warn "New project directory added; virtual machine restart required"
     read -p "$DST_VM_NAME is running; restart it? (y/N)" -n 1 -r response
     echo
     [[ "$response" =~ ^[Yy]$ ]] || exit 0
     stop_vm "$DST_VM_NAME"
-    if ! run_vm "$DST_VM_NAME" 0; then
-        :
-    fi
+    run_vm "$DST_VM_NAME" 0 || true
 fi
 
 if [[ "${COMMAND:-}" == "start" ]]; then
