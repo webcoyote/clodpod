@@ -197,7 +197,9 @@ sync_ssh_key_to_all_instances() {
         local was_stopped=false
         if [[ "$(get_vm_state "$vm")" != "running" ]]; then
             was_stopped=true
-            if ! (vm_run "$vm" "$ram_mb" ""); then
+            (vm_run "$vm" "$ram_mb" "") || true
+            # Check if VM is running (vm_run returns 1 if already running, which is fine)
+            if [[ "$(get_vm_state "$vm")" != "running" ]]; then
                 warn "Could not start $vm for SSH key sync — skipping"
                 continue
             fi
@@ -1754,6 +1756,9 @@ show_status() {
     echo "current image: $MACOS_IMAGE"
 }
 
+# Initialize command args before early-dispatch (vm_shell reads COMMAND_ARGS)
+COMMAND_ARGS=()
+
 # Intercept commands that need their own option parsing before the global loop.
 # But let -h/--help/--version pass through to the normal handler.
 for arg in "$@"; do
@@ -1795,7 +1800,7 @@ for arg in "$@"; do
             shift
             # Parse shell args: [--ram SIZE] [target] [-- cmd...]
             _shell_ram=""
-            _shell_args=()
+            _shell_target=""
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --ram)
@@ -1804,16 +1809,21 @@ for arg in "$@"; do
                         shift 2
                         ;;
                     --)
-                        _shell_args+=("$@")
+                        shift
+                        while [[ $# -gt 0 ]]; do
+                            COMMAND_ARGS+=("$1")
+                            shift
+                        done
                         break
                         ;;
                     *)
-                        _shell_args+=("$1")
+                        if [[ -z "$_shell_target" ]]; then
+                            _shell_target="$1"
+                        fi
                         shift
                         ;;
                 esac
             done
-            _shell_target="${_shell_args[0]:-}"
             # Dispatch: named instance, auto-select, or fall through to legacy
             if [[ -n "$_shell_target" ]] && vm_instance_exists "$_shell_target"; then
                 SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_shell_target"
@@ -1835,7 +1845,7 @@ for arg in "$@"; do
                 abort "Error: --ram is only supported with named VM shell"
             fi
             # Fall through to legacy: put args back for global parser
-            set -- shell ${_shell_args[@]+"${_shell_args[@]}"}
+            set -- shell ${_shell_target:+"$_shell_target"}
             break
             ;;
         *)
