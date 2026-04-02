@@ -83,6 +83,10 @@ OCI_VM_NAME="clodpod-oci-base"
 BASE_VM_NAME="clodpod-xcode-base"
 DST_VM_NAME="clodpod-xcode"
 DB_FILE="$WORKSPACE/.clodpod.sqlite"
+SSH_DIR="$HOME/.ssh"
+SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
+SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
+SSH_KEY_CREATED=false
 
 MACOS_IMAGE="ghcr.io/cirruslabs/macos-$MACOS_VERSION-$MACOS_FLAVOR:latest"
 debug "MacOS image: $MACOS_IMAGE"
@@ -142,6 +146,264 @@ resolve_physical_path() {
     fi
 }
 
+array_contains() {
+    local needle="$1"
+    shift || true
+
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+ensure_ssh_key() {
+    SSH_KEY_CREATED=false
+    if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
+        # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+        mkdir -m 700 -p "$SSH_DIR"
+        ssh-keygen -t ed25519 \
+            -f "$SSH_KEYFILE_PRIV" \
+            -N "" \
+            -q \
+            -C "clodpod-${USER}@${HOSTNAME}"
+        SSH_KEY_CREATED=true
+        REBUILD_DST=true
+        # Sync new key to all existing named VMs
+        sync_ssh_key_to_all_instances
+    fi
+}
+
+# Push updated authorized_keys to all named instances that exist as tart VMs.
+# Temporarily starts stopped VMs, pushes key, stops them again.
+sync_ssh_key_to_all_instances() {
+    local instance_rows
+    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0) FROM instances;" 2>/dev/null)" || return 0
+    [[ -n "$instance_rows" ]] || return 0
+
+    local pub_key
+    pub_key="$(cat "$SSH_KEYFILE_PUB")"
+
+    # Also sync to legacy clodpod-xcode if it exists
+    if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
+        instance_rows="${instance_rows:+$instance_rows
+}${DST_VM_NAME}|0"
+    fi
+
+    local vm ram_mb
+    while IFS='|' read -r vm ram_mb; do
+        if ! get_vm_exists "$vm"; then
+            continue
+        fi
+        local was_stopped=false
+        if [[ "$(get_vm_state "$vm")" != "running" ]]; then
+            was_stopped=true
+            (vm_run "$vm" "$ram_mb" "") || true
+            # Check if VM is running (vm_run returns 1 if already running, which is fine)
+            if [[ "$(get_vm_state "$vm")" != "running" ]]; then
+                warn "Could not start $vm for SSH key sync — skipping"
+                continue
+            fi
+        fi
+        debug "Syncing SSH key to $vm..."
+        printf '%s\n' "$pub_key" | tart exec "$vm" -- \
+            bash -c 'mkdir -m 700 -p /Users/clodpod/.ssh && cat > /Users/clodpod/.ssh/authorized_keys && chmod 600 /Users/clodpod/.ssh/authorized_keys' \
+            2>/dev/null || true
+        if [[ "$was_stopped" == "true" ]]; then
+            tart stop "$vm" 2>/dev/null || true
+        fi
+    done <<< "$instance_rows"
+}
+
+refresh_guest_home() {
+    debug "Configuring credentials..."
+
+    local git_user_name
+    local git_user_email
+    git_user_name="$(git config --global --get user.name 2>/dev/null || echo "")"
+    git_user_email="$(git config --global --get user.email 2>/dev/null || echo "")"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$git_user_name"
+    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$git_user_email"
+
+    local guest_authorized_keys="$WORKSPACE/guest/home/.ssh/authorized_keys"
+    # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+    mkdir -m 700 -p "$(dirname "$guest_authorized_keys")"
+    cp "$SSH_KEYFILE_PUB" "$guest_authorized_keys"
+    chmod 600 "$guest_authorized_keys"
+
+    local guest_known_hosts="$WORKSPACE/guest/home/.ssh/known_hosts"
+    # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+    mkdir -m 700 -p "$(dirname "$guest_known_hosts")"
+    ssh-keyscan github.com > "$guest_known_hosts"
+    chmod 600 "$guest_known_hosts"
+}
+
+vm_name_to_vm_name() {
+    printf 'clodpod-%s\n' "$1"
+}
+
+vm_name_reserved() {
+    case "$1" in
+        xcode|oci-base|xcode-base|tmp*|oci-tmp*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+vm_validate_name() {
+    local name="$1"
+
+    if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid instance name ($name)"
+    fi
+    if vm_name_reserved "$name"; then
+        abort "Error: reserved instance name ($name)"
+    fi
+}
+
+parse_ram_size() {
+    local input="${1:-}"
+    local value
+    local unit
+    local ram_mb
+
+    if [[ ! "$input" =~ ^([0-9]+)([GgMm]?)$ ]]; then
+        abort "Invalid RAM size '$input'. Use values like 8G, 8192M, or 8192."
+    fi
+
+    value="${BASH_REMATCH[1]}"
+    unit="$(printf '%s' "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ "$value" -le 0 ]]; then
+        abort "RAM size must be positive (got '$input')"
+    fi
+
+    case "$unit" in
+        g)
+            ram_mb=$((value * 1024))
+            ;;
+        m|"")
+            ram_mb="$value"
+            ;;
+        *)
+            abort "Invalid RAM size '$input'. Use values like 8G, 8192M, or 8192."
+            ;;
+    esac
+
+    if [[ "$ram_mb" -lt 2048 ]]; then
+        abort "RAM size must be at least 2048 MB (got ${ram_mb} MB)"
+    fi
+
+    echo "$ram_mb"
+}
+
+get_memory_budget_mb() {
+    local configured_budget_mb
+    configured_budget_mb="$(get_setting "max_memory_mb" "")"
+
+    if [[ -n "$configured_budget_mb" ]]; then
+        if [[ ! "$configured_budget_mb" =~ ^[0-9]+$ ]]; then
+            abort "Invalid max_memory_mb setting: $configured_budget_mb"
+        fi
+        echo "$configured_budget_mb"
+        return 0
+    fi
+
+    local host_ram_bytes
+    host_ram_bytes="$(sysctl -n hw.memsize)" || abort "Failed to read host RAM"
+    echo "$(( host_ram_bytes * 5 / 8 / 1048576 ))"
+}
+
+get_running_vms_ram_mb() {
+    local exclude_vm="${1:-}"
+    local running_vms
+    local total_mb=0
+    local vm_name
+
+    if ! running_vms="$(tart list --format json | jq -r '.[] | select(.State == "running") | .Name')"; then
+        abort "Failed to list running VMs"
+    fi
+
+    while IFS= read -r vm_name; do
+        [[ -n "$vm_name" ]] || continue
+        [[ "$vm_name" == clodpod-* ]] || continue
+        [[ "$vm_name" != "$exclude_vm" ]] || continue
+
+        local vm_ram_mb
+        if ! vm_ram_mb="$(tart get "$vm_name" --format json | jq '.Memory')"; then
+            abort "Failed to read memory for VM $vm_name"
+        fi
+
+        if [[ ! "$vm_ram_mb" =~ ^[0-9]+$ ]]; then
+            abort "Invalid memory reported for VM $vm_name: $vm_ram_mb"
+        fi
+
+        total_mb=$((total_mb + vm_ram_mb))
+    done <<< "$running_vms"
+
+    echo "$total_mb"
+}
+
+# Call only while holding the host-global launch lock.
+resolve_and_check_memory_budget() {
+    local requested_mb="${1:-}"
+    local exclude_vm="${2:-}"
+    local budget_mb
+    local used_mb
+    local remaining_mb
+    local resolved_mb
+
+    if [[ ! "$requested_mb" =~ ^[0-9]+$ ]]; then
+        abort "Invalid requested RAM: $requested_mb"
+    fi
+
+    budget_mb="$(get_memory_budget_mb)"
+    used_mb="$(get_running_vms_ram_mb "$exclude_vm")"
+    remaining_mb=$((budget_mb - used_mb))
+
+    if [[ "$requested_mb" -eq 0 ]]; then
+        resolved_mb="$remaining_mb"
+    else
+        resolved_mb="$requested_mb"
+    fi
+
+    if [[ "$resolved_mb" -lt 2048 ]]; then
+        if [[ "$requested_mb" -eq 0 ]]; then
+            abort "Only ${remaining_mb} MB remain in the memory budget (${used_mb} MB used of ${budget_mb} MB); minimum launch RAM is 2048 MB."
+        fi
+        abort "Requested RAM must be at least 2048 MB (got ${resolved_mb} MB)"
+    fi
+
+    if [[ "$resolved_mb" -gt "$remaining_mb" ]]; then
+        abort "Requested ${resolved_mb} MB exceeds remaining memory budget (${remaining_mb} MB available, ${used_mb} MB used of ${budget_mb} MB)."
+    fi
+
+    echo "$resolved_mb"
+}
+
+# shellcheck disable=SC2329 # `This function is never invoked. # yes it is
+with_launch_lock() {
+    local lock_dir="$HOME/.clodpod.launch.lock"
+    local max_wait=30
+    local elapsed=0
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        elapsed=$((elapsed + 1))
+        if [[ "$elapsed" -ge "$max_wait" ]]; then
+            abort "Launch lock timeout — another clod instance may be launching. Remove $lock_dir if stale."
+        fi
+        sleep 1
+    done
+
+    (
+        trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+        "$@"
+    )
+}
+
 install_tools () {
     # Install brew
     if ! command -v brew &> /dev/null ; then
@@ -177,6 +439,19 @@ get_vm_state () {
         || echo ""
 }
 
+get_vm_state_strict () {
+    local vm_name="$1"
+    local vm_source="${2:-local}"
+    local state
+
+    if ! state="$(tart list --source "$vm_source" --format json \
+        | jq -r --arg vm_name "$vm_name" 'first(.[] | select(.Name == $vm_name) | .State) // ""')"; then
+        abort "Failed to query state for VM $vm_name"
+    fi
+
+    echo "$state"
+}
+
 get_vm_exists () {
     local vm_name="$1"
     local vm_source="${2:-local}"
@@ -207,21 +482,67 @@ wait_vm_running () {
     wait_vm_state "$1" "running"
 }
 
-run_vm () {
+vm_run () {
     local vm_name="$1"
+    local ram_mb="${2:-0}"
+    local exclude_vm="${3:-}"
+    local already_running_status=200
+    local launch_status=0
+    shift "$(( $# >= 3 ? 3 : $# ))"
+
     debug "Running $vm_name"
 
-    # Get directories to map into the VM
-    local args=()
-    while IFS= read -r -d '' arg; do
-        args+=("$arg")
-    done < <(get_map_directories)
-    [[ "${NO_GRAPHICS:-}" == "" ]] || args+=("--no-graphics")
+    local run_args=("$@")
+    [[ "${NO_GRAPHICS:-}" == "" ]] || run_args+=("--no-graphics")
 
-    tart run \
-        "${args[@]}" \
-        "$vm_name" </dev/null &>/dev/null & disown
-    wait_vm_running "$vm_name"
+    # shellcheck disable=SC2329 # `This function is never invoked. # yes it is
+    _vm_run_locked() {
+        local current_state
+        current_state="$(get_vm_state_strict "$vm_name")"
+        if [[ "$current_state" == "running" ]]; then
+            exit "$already_running_status"
+        fi
+
+        local resolved_ram
+        resolved_ram="$(resolve_and_check_memory_budget "$ram_mb" "$exclude_vm")"
+        [[ -n "$resolved_ram" ]] || exit 1
+        tart set "$vm_name" --memory "$resolved_ram"
+        tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
+        wait_vm_running "$vm_name"
+    }
+
+    if with_launch_lock _vm_run_locked; then
+        launch_status=0
+    else
+        launch_status=$?
+    fi
+
+    if [[ "$launch_status" -eq "$already_running_status" ]]; then
+        return 1
+    fi
+    if [[ "$launch_status" -ne 0 ]]; then
+        exit "$launch_status"
+    fi
+
+    return 0
+}
+
+run_vm () {
+    local vm_name="$1"
+    local ram_mb="${2:-0}"
+
+    # Get directories to map into the VM
+    local run_args=()
+    while IFS= read -r -d '' arg; do
+        run_args+=("$arg")
+    done < <(get_map_directories)
+
+    local status=0
+    vm_run "$vm_name" "$ram_mb" "" "${run_args[@]}" || status=$?
+    if [[ "$status" -ne 0 ]]; then
+        return "$status"
+    fi
+
     # Mark all projects as active after virtual machine starts successfully
     sqlite3 "$DB_FILE" <<EOF
 UPDATE projects SET active = 1;
@@ -244,7 +565,6 @@ clone_vm () {
     tart clone "$src_vm_name" "$dst_vm_name"
     tart set "$dst_vm_name" --random-mac --random-serial
     tart set "$dst_vm_name" --cpu "$(sysctl -n hw.ncpu)"
-    tart set "$dst_vm_name" --memory "$(( $(sysctl -n hw.memsize) * 5 / 8 / 1048576 ))"
 }
 
 stop_all_vms () {
@@ -307,8 +627,81 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS instances (
+    name TEXT PRIMARY KEY,
+    vm_name TEXT UNIQUE NOT NULL,
+    ram_mb INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS instance_dirs (
+    instance_name TEXT NOT NULL,
+    dir_name TEXT NOT NULL,
+    dir_path TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (instance_name, dir_name)
+);
+EOF
+
+    # Migration: add ram_mb column to existing instances tables
+    local has_ram_mb
+    has_ram_mb=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ram_mb') || true
+    if [[ "$has_ram_mb" -eq 0 ]]; then
+        sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ram_mb INTEGER;"
+    fi
+}
+
+vm_instance_exists() {
+    local instance_name="$1"
+    local count
+    count=$(sqlite3 "$DB_FILE" <<EOF 2>/dev/null || echo 0
+SELECT COUNT(*) FROM instances WHERE name = '$(sql_escape "$instance_name")';
+EOF
+)
+    [[ "${count:-0}" -gt 0 ]]
+}
+
+vm_get_instance_vm_name() {
+    local instance_name="$1"
+    sqlite3 "$DB_FILE" <<EOF
+SELECT vm_name FROM instances WHERE name = '$(sql_escape "$instance_name")' LIMIT 1;
 EOF
 }
+
+vm_get_instance_ram_mb() {
+    local instance_name="$1"
+    sqlite3 "$DB_FILE" <<EOF
+SELECT COALESCE(ram_mb, 0) FROM instances WHERE name = '$(sql_escape "$instance_name")' LIMIT 1;
+EOF
+}
+
+vm_get_instance_count() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT COUNT(*) FROM instances;
+EOF
+}
+
+vm_get_instance_names() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT name FROM instances ORDER BY created_at DESC, name ASC;
+EOF
+}
+
+vm_get_only_instance_name() {
+    sqlite3 "$DB_FILE" <<EOF
+SELECT name FROM instances ORDER BY created_at DESC, name ASC LIMIT 1;
+EOF
+}
+
+vm_get_instance_dirs() {
+    local instance_name="$1"
+    sqlite3 -separator '|' "$DB_FILE" <<EOF
+SELECT dir_name, dir_path, is_primary
+FROM instance_dirs
+WHERE instance_name = '$(sql_escape "$instance_name")'
+ORDER BY is_primary DESC, rowid ASC;
+EOF
+}
+
 
 get_setting() {
     local key="$1"
@@ -451,6 +844,134 @@ get_project_path_by_name() {
     sqlite3 "$DB_FILE" <<EOF
 SELECT path FROM projects WHERE name = '$(sql_escape "$name")' LIMIT 1;
 EOF
+}
+
+vm_create() {
+    local instance_name="${1:-}"
+    shift || true
+
+    [[ -n "$instance_name" ]] || abort "Usage: clod create <name> [--dir name:path]..."
+    vm_validate_name "$instance_name"
+
+    if vm_instance_exists "$instance_name"; then
+        abort "Error: instance already exists ($instance_name)"
+    fi
+
+    local final_vm_name
+    final_vm_name="$(vm_name_to_vm_name "$instance_name")"
+    if get_vm_exists "$final_vm_name"; then
+        abort "Error: tart VM already exists outside the database ($final_vm_name)"
+    fi
+
+    local create_ram_mb=""
+    local dir_names=()
+    local dir_paths=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ram)
+                [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
+                create_ram_mb="$(parse_ram_size "$2")"
+                shift 2
+                ;;
+            --dir)
+                [[ $# -ge 2 ]] || abort "Error: --dir requires name:path"
+
+                local dir_spec="$2"
+                shift 2
+
+                [[ "$dir_spec" == *:* ]] || abort "Error: invalid --dir value ($dir_spec)"
+                local dir_name="${dir_spec%%:*}"
+                local dir_path_spec="${dir_spec#*:}"
+                [[ -n "$dir_name" ]] || abort "Error: missing directory name in --dir"
+                [[ -n "$dir_path_spec" ]] || abort "Error: missing directory path in --dir"
+                [[ "$dir_name" != "__install" ]] || abort "Error: reserved directory name (__install)"
+                if array_contains "$dir_name" ${dir_names[@]+"${dir_names[@]}"}; then
+                    abort "Error: duplicate --dir name ($dir_name)"
+                fi
+
+                local dir_path
+                dir_path="$(resolve_physical_path "$dir_path_spec" 2>/dev/null || true)"
+                if [[ ! -d "$dir_path" ]]; then
+                    abort "Error: directory not found ($dir_path_spec)"
+                fi
+
+                dir_names+=("$dir_name")
+                dir_paths+=("$dir_path")
+                ;;
+            *)
+                abort "Error: unknown create option ($1)"
+                ;;
+        esac
+    done
+
+    if ! get_vm_exists "$BASE_VM_NAME"; then
+        abort "Error: base VM missing. Run 'clod shell' first to bootstrap it."
+    fi
+
+    ensure_ssh_key
+    refresh_guest_home
+
+    TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
+    trap cleanup_tmp_vm EXIT
+
+    clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
+
+    local vm_args=()
+    local i=0
+    while [[ "$i" -lt "${#dir_names[@]}" ]]; do
+        vm_args+=("--dir" "${dir_names[$i]}:${dir_paths[$i]}")
+        i=$((i + 1))
+    done
+    vm_args+=("--dir" "__install:$WORKSPACE/guest")
+    vm_run "$TMP_VM_NAME" 0 "" "${vm_args[@]}"
+
+    trace "Running configure.sh..."
+    if ! tart exec -it "$TMP_VM_NAME" \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
+        "/Volumes/My Shared Files/__install/configure.sh"; then
+        abort "configure.sh failed — named VM will not be saved"
+    fi
+
+    trace "Stopping $TMP_VM_NAME to flush directory service writes..."
+    stop_vm "$TMP_VM_NAME"
+
+    trace "Renaming $TMP_VM_NAME to $final_vm_name"
+    tart rename "$TMP_VM_NAME" "$final_vm_name"
+    TMP_VM_NAME=""
+
+    local sql
+    local ram_sql="NULL"
+    if [[ -n "$create_ram_mb" ]]; then
+        ram_sql="$create_ram_mb"
+    fi
+    sql="BEGIN IMMEDIATE;
+INSERT INTO instances (name, vm_name, ram_mb, created_at)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, datetime('now'));"
+
+    i=0
+    while [[ "$i" -lt "${#dir_names[@]}" ]]; do
+        local is_primary=0
+        if [[ "$i" -eq 0 ]]; then
+            is_primary=1
+        fi
+        sql="${sql}
+INSERT INTO instance_dirs (instance_name, dir_name, dir_path, is_primary)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "${dir_names[$i]}")', '$(sql_escape "${dir_paths[$i]}")', $is_primary);"
+        i=$((i + 1))
+    done
+    sql="${sql}
+COMMIT;"
+
+    if ! printf '%s\n' "$sql" | sqlite3 "$DB_FILE"; then
+        warn "DB insert failed — removing VM $final_vm_name"
+        tart delete "$final_vm_name" 2>/dev/null || true
+        if get_vm_exists "$final_vm_name"; then
+            abort "Failed to record instance AND failed to delete VM $final_vm_name — orphan VM left behind"
+        fi
+        abort "Failed to record instance $instance_name"
+    fi
+
+    info "Created instance $instance_name"
 }
 
 read_menu_key() {
@@ -691,35 +1212,418 @@ EOF
     fi
 }
 
+get_relative_directory_from_root() {
+    local root_path="$1"
+    local current_dir
+    local resolved_root
+
+    current_dir="$(resolve_physical_path "$PWD" 2>/dev/null || return 1)"
+    resolved_root="$(resolve_physical_path "$root_path" 2>/dev/null || return 1)"
+
+    if [[ "$current_dir" == "$resolved_root" ]] || [[ "$current_dir" == "$resolved_root"/* ]]; then
+        local relative_path="${current_dir#"$resolved_root"}"
+        relative_path="${relative_path#/}"
+        echo "$relative_path"
+        return 0
+    fi
+
+    return 1
+}
+
 # Check if current working directory is inside active project and returns RELATIVE_PATH
 # Returns 0 if inside the project, 1 otherwise
 get_relative_project_directory() {
     local project_name
     project_name="$1"
-    local current_dir
-    current_dir="$(resolve_physical_path "$PWD")"
-    
     local path
     path=$(sqlite3 "$DB_FILE" <<EOF || return 1
 SELECT path FROM projects WHERE name = '$(sql_escape "$project_name")' AND active > 0 LIMIT 1;
 EOF
 )
-    
-    if [[ -n "$path" ]]; then
-        # Check if current directory is inside this project
-        path="$(resolve_physical_path "$path" || true)"
-        if [[ "$current_dir" == "$path" ]] || [[ "$current_dir" == "$path"/* ]]; then
-            # Calculate relative path from project root
-            local relative_path="${current_dir#"$path"}"
-            relative_path="${relative_path#/}"  # Remove leading slash if present
 
-            # Output the results separated by pipe
-            echo "${relative_path}"
-            return 0
+    [[ -n "$path" ]] || return 1
+    get_relative_directory_from_root "$path"
+}
+
+get_local_network_error() {
+    local vm_name="$1"
+    local term_program="${TERM_PROGRAM:-e.g. ghostty, kitty, iTerm, WezTerm}"
+
+    cat <<EOF
+
+ERROR: unable to connect to $vm_name.
+
+Your terminal app ($term_program)
+has not been granted "Local Network" access rights,
+which are required to SSH to the Virtual Machine.
+
+- Open "System Settings.app"
+- Navigate to "Privacy & Security"
+- Select "Local Network"
+- Grant access to your terminal application
+
+EOF
+}
+
+encode_command_args() {
+    local command_args_b64=""
+    if [[ ${#COMMAND_ARGS[@]} -gt 0 ]]; then
+        command_args_b64="$(printf '%s\0' "${COMMAND_ARGS[@]}" | base64 | tr -d '\n')"
+    fi
+    echo "$command_args_b64"
+}
+
+get_vm_ip_or_abort() {
+    local vm_name="$1"
+
+    debug "Checking $vm_name IP connectivity"
+    local ipaddr
+    ipaddr="$(tart ip --wait 20 "$vm_name")"
+    if ! nc -z "$ipaddr" 22 ; then
+        error "$(get_local_network_error "$vm_name")"
+        read -n 1 -s -r -p "Press any key to open System Settings"
+        open "/System/Library/PreferencePanes/Security.prefPane"
+    fi
+
+    echo "$ipaddr"
+}
+
+ssh_into_vm() {
+    local vm_name="$1"
+    local project_name="${2:-}"
+    local initial_dir="${3:-}"
+    local ipaddr
+    local command_args_b64
+
+    ipaddr="$(get_vm_ip_or_abort "$vm_name")"
+    debug "Connect to $vm_name (ssh clodpod@$ipaddr)"
+
+    command_args_b64="$(encode_command_args)"
+
+    exec ssh \
+        -q \
+        -tt \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "$SSH_KEYFILE_PRIV" \
+        "clodpod@$ipaddr" \
+        /usr/bin/env \
+            "TERM=xterm-256color" \
+            "PROJECT=$project_name" \
+            "INITIAL_DIR=$initial_dir" \
+            "COMMAND=${COMMAND:-}" \
+            "COMMAND_ARGS_B64=$command_args_b64" \
+            zsh --login || true
+}
+
+vm_sync_authorized_key() {
+    local vm_name="$1"
+    local pub_key_b64
+
+    pub_key_b64="$(base64 < "$SSH_KEYFILE_PUB" | tr -d '\n')"
+    # shellcheck disable=SC2016 #  Expressions don't expand in single quotes, use double quotes for that.
+    tart exec -it "$vm_name" \
+        "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
+        bash -lc '
+            sudo install -d -m 700 -o clodpod -g clodpod /Users/clodpod/.ssh
+            printf "%s" "$PUB_KEY_B64" | /usr/bin/base64 -D | sudo tee /Users/clodpod/.ssh/authorized_keys >/dev/null
+            sudo chown clodpod:clodpod /Users/clodpod/.ssh/authorized_keys
+            sudo chmod 600 /Users/clodpod/.ssh/authorized_keys
+        '
+}
+
+vm_list() {
+    local result
+    result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
+SELECT name, vm_name, ram_mb FROM instances ORDER BY created_at DESC, name ASC;
+EOF
+)
+
+    [[ -n "$result" ]] || return 1
+
+    echo "INSTANCES"
+    printf "%-20s %-10s %-12s %-15s %s\n" "NAME" "RAM (MB)" "STATE" "IP" "DIRS"
+
+    local instance_name
+    local vm_name
+    local stored_ram
+    while IFS='|' read -r instance_name vm_name stored_ram; do
+        local state
+        local ipaddr="-"
+        local ram_display
+        local dir_rows
+        local dirs=""
+
+        state="$(get_vm_state "$vm_name")"
+        [[ -n "$state" ]] || state="not created"
+
+        # RAM display: running → actual from tart get; stopped → stored or (budget)
+        if [[ "$state" == "running" ]]; then
+            ipaddr="$(tart ip "$vm_name" 2>/dev/null || echo "-")"
+            [[ -n "$ipaddr" ]] || ipaddr="-"
+            ram_display="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
+        elif [[ -n "$stored_ram" ]] && [[ "$stored_ram" != "0" ]]; then
+            ram_display="$stored_ram"
+        else
+            ram_display="(budget)"
+        fi
+
+        dir_rows="$(vm_get_instance_dirs "$instance_name")"
+        if [[ -n "$dir_rows" ]]; then
+            local dir_name
+            local dir_path
+            local is_primary
+            while IFS='|' read -r dir_name dir_path is_primary; do
+                local entry="${dir_name}:${dir_path}"
+                if [[ "$is_primary" -eq 1 ]]; then
+                    entry="$entry (primary)"
+                fi
+                if [[ -n "$dirs" ]]; then
+                    dirs="$dirs, "
+                fi
+                dirs="${dirs}${entry}"
+            done <<< "$dir_rows"
+        fi
+        [[ -n "$dirs" ]] || dirs="-"
+
+        printf "%-20s %-10s %-12s %-15s %s\n" "$instance_name" "$ram_display" "$state" "$ipaddr" "$dirs"
+    done <<< "$result"
+}
+
+vm_shell() {
+    local instance_name="$1"
+    local vm_name
+    local effective_ram
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    # RAM priority: --ram override > stored ram_mb > 0 (dynamic/remaining budget)
+    if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
+        effective_ram="$SHELL_RAM_OVERRIDE"
+    else
+        effective_ram="$(vm_get_instance_ram_mb "$instance_name")"
+        [[ "$effective_ram" =~ ^[0-9]+$ ]] || effective_ram=0
+    fi
+
+    if ! get_vm_exists "$vm_name"; then
+        abort "Error: VM missing for instance $instance_name ($vm_name). Destroy and recreate it."
+    fi
+
+    ensure_ssh_key
+
+    local dir_args=()
+    local primary_name=""
+    local primary_path=""
+    local dir_rows
+    dir_rows="$(vm_get_instance_dirs "$instance_name")"
+    if [[ -n "$dir_rows" ]]; then
+        local dir_name
+        local dir_path
+        local is_primary
+        while IFS='|' read -r dir_name dir_path is_primary; do
+            if [[ ! -d "$dir_path" ]]; then
+                warn "Instance directory missing on host: $dir_name ($dir_path)"
+                continue
+            fi
+
+            dir_args+=("--dir" "${dir_name}:${dir_path}")
+            if [[ "$is_primary" -eq 1 ]] && [[ -z "$primary_name" ]]; then
+                primary_name="$dir_name"
+                primary_path="$dir_path"
+            fi
+        done <<< "$dir_rows"
+    fi
+
+    if [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+        # VM already running — warn if --ram override given, then reconnect
+        if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
+            local current_ram
+            current_ram="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
+            warn "$instance_name is already running with ${current_ram} MB RAM. --ram override ignored for running VM."
+        fi
+    else
+        vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
+    fi
+
+    if [[ "${SSH_KEY_CREATED:-false}" == "true" ]]; then
+        vm_sync_authorized_key "$vm_name"
+    fi
+
+    local initial_dir=""
+    if [[ -n "$primary_path" ]]; then
+        initial_dir="$(get_relative_directory_from_root "$primary_path" 2>/dev/null || true)"
+        debug "initial directory: ${initial_dir:-}"
+    fi
+
+    ssh_into_vm "$vm_name" "$primary_name" "$initial_dir"
+}
+
+vm_stop_instance() {
+    local instance_name="$1"
+    local vm_name
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    if ! get_vm_exists "$vm_name"; then
+        return 0
+    fi
+
+    stop_vm "$vm_name"
+}
+
+vm_delete_instance_records() {
+    local instance_name="$1"
+
+    sqlite3 "$DB_FILE" <<EOF
+BEGIN IMMEDIATE;
+DELETE FROM instance_dirs WHERE instance_name = '$(sql_escape "$instance_name")';
+DELETE FROM instances WHERE name = '$(sql_escape "$instance_name")';
+COMMIT;
+EOF
+}
+
+vm_destroy_instance() {
+    local instance_name="$1"
+    local vm_name
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    if get_vm_exists "$vm_name"; then
+        stop_vm "$vm_name"
+        tart delete "$vm_name" 2>/dev/null || true
+        if get_vm_exists "$vm_name"; then
+            abort "Failed to delete VM $vm_name — DB records kept so destroy can be retried"
         fi
     fi
-    
-    return 1
+
+    vm_delete_instance_records "$instance_name"
+}
+
+vm_destroy() {
+    [[ $# -gt 0 ]] || abort "Usage: clod destroy <name> | --all"
+
+    if [[ "${1:-}" == "--all" ]]; then
+        [[ $# -eq 1 ]] || abort "Error: destroy --all does not accept additional arguments"
+
+        local instance_names
+        instance_names="$(vm_get_instance_names)"
+        if [[ -n "$instance_names" ]]; then
+            local instance_name
+            while IFS= read -r instance_name; do
+                [[ -n "$instance_name" ]] || continue
+                vm_destroy_instance "$instance_name"
+            done <<< "$instance_names"
+        fi
+        return 0
+    fi
+
+    [[ $# -eq 1 ]] || abort "Error: destroy accepts exactly one instance name"
+    vm_destroy_instance "$1"
+}
+
+vm_set() {
+    local ram_value=""
+    local ram_name=""
+    local max_memory_value=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ram)
+                [[ $# -ge 2 ]] || abort "Usage: clod set --ram <size|default> <name>"
+                ram_value="$2"
+                shift 2
+                if [[ $# -ge 1 ]] && [[ "$1" != -* ]]; then
+                    ram_name="$1"
+                    shift
+                else
+                    abort "Usage: clod set --ram <size|default> <name>"
+                fi
+                ;;
+            --max-memory)
+                [[ $# -ge 2 ]] || abort "Usage: clod set --max-memory <size|default>"
+                max_memory_value="$2"
+                shift 2
+                ;;
+            *)
+                abort "Error: unknown set option ($1)"
+                ;;
+        esac
+    done
+
+    if [[ -n "$ram_value" ]]; then
+        [[ -n "$ram_name" ]] || abort "Usage: clod set --ram <size|default> <name>"
+        if ! vm_instance_exists "$ram_name"; then
+            abort "Error: instance not found ($ram_name)"
+        fi
+
+        if [[ "$ram_value" == "default" ]]; then
+            sqlite3 "$DB_FILE" "UPDATE instances SET ram_mb = NULL WHERE name = '$(sql_escape "$ram_name")';"
+            info "Reset RAM for $ram_name to dynamic (budget)"
+        else
+            local ram_mb
+            ram_mb="$(parse_ram_size "$ram_value")"
+            sqlite3 "$DB_FILE" "UPDATE instances SET ram_mb = $ram_mb WHERE name = '$(sql_escape "$ram_name")';"
+            info "Set RAM for $ram_name to ${ram_mb} MB"
+        fi
+
+        # Warn if instance is running
+        local vm_name
+        vm_name="$(vm_get_instance_vm_name "$ram_name")"
+        if [[ -n "$vm_name" ]] && [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+            warn "Instance $ram_name is running — change takes effect on next launch"
+        fi
+    fi
+
+    if [[ -n "$max_memory_value" ]]; then
+        if [[ "$max_memory_value" == "default" ]]; then
+            sqlite3 "$DB_FILE" "DELETE FROM settings WHERE key = 'max_memory_mb';"
+            info "Reset memory budget to default (5/8 of host RAM)"
+        else
+            local budget_mb
+            budget_mb="$(parse_ram_size "$max_memory_value")"
+
+            # Validate against host RAM
+            local host_ram_mb
+            host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+            if [[ "$budget_mb" -gt "$host_ram_mb" ]]; then
+                abort "Budget (${budget_mb} MB) exceeds host RAM (${host_ram_mb} MB)"
+            fi
+
+            set_setting "max_memory_mb" "$budget_mb"
+            info "Set memory budget to ${budget_mb} MB"
+
+            # Warn if current usage exceeds new budget
+            local used_mb
+            used_mb="$(get_running_vms_ram_mb "")"
+            if [[ "$used_mb" -gt "$budget_mb" ]]; then
+                warn "Current usage (${used_mb} MB) exceeds new budget (${budget_mb} MB). No running VMs affected — budget enforced on next launch."
+            fi
+        fi
+    fi
+
+    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]]; then
+        abort "Usage: clod set [--ram <size|default> <name>] [--max-memory <size|default>]"
+    fi
+}
+
+list_all() {
+    local budget_mb
+    budget_mb="$(get_memory_budget_mb)"
+    local host_ram_mb
+    host_ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+    echo "Memory budget: ${budget_mb} MB (of ${host_ram_mb} MB)"
+    echo ""
+
+    if vm_list; then
+        echo ""
+        echo "PROJECTS"
+        list_projects
+    else
+        list_projects
+    fi
 }
 
 show_version() {
@@ -754,6 +1658,7 @@ show_help() {
     echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
     echo "  --allow-sudo         Allow passwordless sudo for clodpod user (rebuilds if setting changed)"
     echo "  --no-allow-sudo      Disallow sudo for clodpod user (rebuilds if setting changed)"
+    echo "  --ram SIZE           Set RAM for this shell session (e.g. 8G, 8192M). Named VMs only"
     echo "  -n|--no-select       Disable interactive project selection"
     echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
     echo "  -vv                  Set verbosity level 2"
@@ -766,13 +1671,30 @@ show_help() {
     echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
     echo "  cu, cursor [PATH] [NAME]  Run Cursor Agent"
     echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
-    echo "  s,  shell  [PATH] [NAME]  Run zsh shell"
+    echo "  cr, create NAME [--ram SIZE] [--dir name:path ...]"
+    echo "                           Create a named VM from the base image"
+    echo "  s,  shell  [NAME|PATH] [NAME]"
+    echo "                           Run zsh shell for a named VM or legacy project"
     echo "  a,  add PATH [NAME]       Add a new project"
     echo "  rm, remove <identifier>   Remove project by name or path"
-    echo "  ls, list                  List all projects"
+    echo "  ls, list                  List named instances and projects"
     echo "  st, status                Show sudo, Layer 0/base/dst state, and image provenance"
     echo "      start                 Start virtual machine"
-    echo "      stop                  Stop virtual machine"
+    echo "      stop [NAME]           Stop a named VM or all clodpod VMs"
+    echo "      destroy NAME          Delete a named VM"
+    echo "      destroy --all         Delete all named VMs"
+    echo "      set --ram SIZE NAME   Set per-instance RAM (use 'default' to reset)"
+    echo "      set --max-memory SIZE Set workspace memory budget (use 'default' to reset)"
+    echo ""
+    echo "Examples:"
+    echo "  clod create dev --ram 8G --dir project:/Users/me/src/app"
+    echo "  clod shell dev"
+    echo "  clod shell --ram 6G dev"
+    echo "  clod set --ram 10G dev"
+    echo "  clod set --max-memory 16G"
+    echo "  clod shell /Users/me/src/app"
+    echo "  clod stop dev"
+    echo "  clod destroy --all"
     echo ""
     echo "Arguments after -- are passed to the command (claude, codex, cursor, gemini, shell)"
 }
@@ -801,6 +1723,102 @@ show_status() {
     echo "stored image: $stored_image"
     echo "current image: $MACOS_IMAGE"
 }
+
+# Intercept commands that need their own option parsing before the global loop.
+# But let -h/--help/--version pass through to the normal handler.
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help|--version|-V)
+            break  # let global parser handle these
+            ;;
+        -*)
+            continue
+            ;;
+        create|cr)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            vm_create "$@"
+            exit 0
+            ;;
+        destroy)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            vm_destroy "$@"
+            exit 0
+            ;;
+        set)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            vm_set "$@"
+            exit 0
+            ;;
+        shell|sh|s)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            # Parse shell args: [--ram SIZE] [target] [-- cmd...]
+            COMMAND_ARGS=()
+            _shell_ram=""
+            _shell_target=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --ram)
+                        [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
+                        _shell_ram="$(parse_ram_size "$2")"
+                        shift 2
+                        ;;
+                    --)
+                        shift
+                        while [[ $# -gt 0 ]]; do
+                            COMMAND_ARGS+=("$1")
+                            shift
+                        done
+                        break
+                        ;;
+                    *)
+                        if [[ -z "$_shell_target" ]]; then
+                            _shell_target="$1"
+                        fi
+                        shift
+                        ;;
+                esac
+            done
+            # Dispatch: named instance, auto-select, or fall through to legacy
+            if [[ -n "$_shell_target" ]] && vm_instance_exists "$_shell_target"; then
+                SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_shell_target"
+                exit 0
+            fi
+            if [[ -z "$_shell_target" ]]; then
+                _instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
+                if [[ "${_instance_count:-0}" -eq 1 ]]; then
+                    _only_name="$(vm_get_only_instance_name)"
+                    SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_only_name"
+                    exit 0
+                elif [[ "${_instance_count:-0}" -gt 1 ]]; then
+                    vm_list
+                    abort "Multiple instances exist. Specify name: clod shell <name>"
+                fi
+            fi
+            # --ram not supported on legacy shell
+            if [[ -n "$_shell_ram" ]]; then
+                abort "Error: --ram is only supported with named VM shell"
+            fi
+            # Fall through to legacy: put args back for global parser
+            set -- shell ${_shell_target:+"$_shell_target"}
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 # Parse optional arguments
 NEW_ARGS=()
@@ -906,6 +1924,7 @@ case "${1:-}" in
         ;;
     shell|sh|s)
         unset COMMAND
+        IS_SHELL_COMMAND=true
         PROJECT_DIR="${2:-}"
         PROJECT_NAME="${3:-}"
         ;;
@@ -913,7 +1932,11 @@ case "${1:-}" in
         COMMAND=start
         ;;
     stop)
-        stop_all_vms
+        if [[ -n "${2:-}" ]]; then
+            vm_stop_instance "$2"
+        else
+            stop_all_vms
+        fi
         exit 0
         ;;
     add|a)
@@ -925,7 +1948,7 @@ case "${1:-}" in
         exit 0
         ;;
     list|ls|l)
-        list_projects
+        list_all
         exit 0
         ;;
     status|st)
@@ -943,6 +1966,9 @@ case "${1:-}" in
         ;;
 esac
 
+# Named instance shell dispatch is handled in early-dispatch above.
+# Legacy shell (path/project) falls through to here.
+
 # Decide whether sudo-setting changes require rebuild
 STORED_ALLOW_SUDO="$(get_setting "allow_sudo" "false")"
 if [[ "${COMMAND:-}" == "status" ]]; then
@@ -959,19 +1985,30 @@ fi
 
 # Resolve explicit command target argument
 if [[ -n "${PROJECT_DIR:-}" ]]; then
-    resolved_path="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || true)"
-    if [[ -d "$resolved_path" ]]; then
-        # PATH [NAME] form
-        add_project "$PROJECT_DIR" "$PROJECT_NAME"
-        SHOULD_SELECT_PROJECT=false
-    elif project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
+    if [[ "${IS_SHELL_COMMAND:-}" == "true" ]] && project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
         # NAME-only form
         PROJECT_NAME="$PROJECT_DIR"
         PROJECT_DIR="$project_path"
         SHOULD_SELECT_PROJECT=false
         set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
     else
-        abort "Error: Project not found ($PROJECT_DIR)"
+        resolved_path="$(resolve_physical_path "$PROJECT_DIR" 2>/dev/null || true)"
+        if [[ -d "$resolved_path" ]]; then
+            # PATH [NAME] form
+            add_project "$PROJECT_DIR" "$PROJECT_NAME"
+            SHOULD_SELECT_PROJECT=false
+        elif project_path="$(get_project_path_by_name "$PROJECT_DIR")" && [[ -n "$project_path" ]]; then
+            # NAME-only form
+            PROJECT_NAME="$PROJECT_DIR"
+            PROJECT_DIR="$project_path"
+            SHOULD_SELECT_PROJECT=false
+            set_active_project "$PROJECT_NAME" "$PROJECT_DIR"
+        else
+            if [[ "${IS_SHELL_COMMAND:-}" == "true" ]]; then
+                abort "Error: project path or instance not found ($PROJECT_DIR)"
+            fi
+            abort "Error: Project not found ($PROJECT_DIR)"
+        fi
     fi
 fi
 
@@ -1012,18 +2049,7 @@ check_oci_provenance
 ###############################################################################
 # Create passwordless SSH key with permission to remotely login to guest
 ###############################################################################
-SSH_DIR="$HOME/.ssh"
-SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
-SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
-if [[ ! -f "$SSH_KEYFILE_PRIV" ]] || [[ ! -f "$SSH_KEYFILE_PUB" ]]; then
-    mkdir -p "$SSH_DIR"
-    ssh-keygen -t ed25519 \
-        -f "$SSH_KEYFILE_PRIV" \
-        -N "" \
-        -q \
-        -C "clodpod-${USER}@${HOSTNAME}"
-    REBUILD_DST=true
-fi
+ensure_ssh_key
 
 if [[ "${REBUILD_OCI:-}" != "" ]]; then
     REBUILD_BASE=true
@@ -1074,25 +2100,7 @@ fi
 # Configure virtual machine settings
 ###############################################################################
 if [[ "${REBUILD_DST:-}" != "" ]]; then
-    debug "Configuring credentials..."
-
-    # Get git config from host
-    GIT_USER_NAME=$(git config --global --get user.name 2>/dev/null || echo "")
-    GIT_USER_EMAIL=$(git config --global --get user.email 2>/dev/null || echo "")
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$GIT_USER_NAME"
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$GIT_USER_EMAIL"
-
-    # Add SSH public key to host's authorized_keys
-    GUEST_AUTHORIZED_KEYS="$WORKSPACE/guest/home/.ssh/authorized_keys"
-    mkdir -p "$(dirname "$GUEST_AUTHORIZED_KEYS")"
-    cp "$SSH_KEYFILE_PUB" "$GUEST_AUTHORIZED_KEYS"
-    chmod 600 "$GUEST_AUTHORIZED_KEYS"
-
-    # Add GitHub to known hosts
-    GUEST_KNOWN_HOSTS="$WORKSPACE/guest/home/.ssh/known_hosts"
-    mkdir -p "$(dirname "$GUEST_KNOWN_HOSTS")"
-    ssh-keyscan github.com > "$GUEST_KNOWN_HOSTS"
-    chmod 600 "$GUEST_KNOWN_HOSTS"
+    refresh_guest_home
 fi
 
 # https://github.com/webcoyote/clodpod/issues/5
@@ -1132,7 +2140,7 @@ if [[ "${REBUILD_BASE:-}" != "" ]]; then
 
     trace "Cloning $OCI_VM_NAME to $TMP_VM_NAME..."
     clone_vm "$OCI_VM_NAME" "$TMP_VM_NAME"
-    run_vm "$TMP_VM_NAME"
+    run_vm "$TMP_VM_NAME" 0
 
     trace "Running install.sh..."
     INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=$ALLOW_SUDO" )
@@ -1185,7 +2193,7 @@ if [[ "${REBUILD_DST:-}" != "" ]]; then
         clone_vm "$TMP_VM_NAME" "$BASE_VM_NAME"
     else
         clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
-        run_vm "$TMP_VM_NAME"
+        run_vm "$TMP_VM_NAME" 0
     fi
 
     trace "Running configure.sh..."
@@ -1223,14 +2231,14 @@ which are required to SSH to the Virtual Machine.
 EOF
 
 if [[ "$(get_vm_state "$DST_VM_NAME")" != "running" ]]; then
-    run_vm "$DST_VM_NAME"
+    run_vm "$DST_VM_NAME" 0 || true
 elif ! check_projects_active ; then
     warn "New project directory added; virtual machine restart required"
     read -p "$DST_VM_NAME is running; restart it? (y/N)" -n 1 -r response
     echo
     [[ "$response" =~ ^[Yy]$ ]] || exit 0
     stop_vm "$DST_VM_NAME"
-    run_vm "$DST_VM_NAME"
+    run_vm "$DST_VM_NAME" 0 || true
 fi
 
 if [[ "${COMMAND:-}" == "start" ]]; then
