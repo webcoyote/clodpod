@@ -206,7 +206,7 @@ sync_ssh_key_to_all_instances() {
         fi
         debug "Syncing SSH key to $vm..."
         printf '%s\n' "$pub_key" | tart exec "$vm" -- \
-            bash -c 'cat > /Users/clodpod/.ssh/authorized_keys && chmod 600 /Users/clodpod/.ssh/authorized_keys' \
+            bash -c 'mkdir -m 700 -p /Users/clodpod/.ssh && cat > /Users/clodpod/.ssh/authorized_keys && chmod 600 /Users/clodpod/.ssh/authorized_keys' \
             2>/dev/null || true
         if [[ "$was_stopped" == "true" ]]; then
             tart stop "$vm" 2>/dev/null || true
