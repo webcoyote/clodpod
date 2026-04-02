@@ -226,12 +226,14 @@ refresh_guest_home() {
     git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$git_user_email"
 
     local guest_authorized_keys="$WORKSPACE/guest/home/.ssh/authorized_keys"
-    mkdir -p "$(dirname "$guest_authorized_keys")"
+    # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+    mkdir -m 700 -p "$(dirname "$guest_authorized_keys")"
     cp "$SSH_KEYFILE_PUB" "$guest_authorized_keys"
     chmod 600 "$guest_authorized_keys"
 
     local guest_known_hosts="$WORKSPACE/guest/home/.ssh/known_hosts"
-    mkdir -p "$(dirname "$guest_known_hosts")"
+    # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
+    mkdir -m 700 -p "$(dirname "$guest_known_hosts")"
     ssh-keyscan github.com > "$guest_known_hosts"
     chmod 600 "$guest_known_hosts"
 }
