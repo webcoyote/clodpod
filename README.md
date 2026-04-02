@@ -1,16 +1,20 @@
 # ClodPod - Run AI agents in a macOS VM sandbox
 
-![clodpod logo](https://webcoyote.github.io/images/shared/clodpod/clodpod-logo.jpg)
+<img src="https://www.codeofhonor.com/images/projects/clodpod.webp" align="left" width="200px"/>
+ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini, and Cursor Agent. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
+</br>
+</br>
+ClodPod maps any number of your project directories into the virtual machine so AI agents can work on your code while remaining isolated from your host computer.
+</br>
+</br>
+ClodPod virtual machines include Xcode and common development tools, and it's easy to extend to add your own development tools and configuration files.
+
+</br>
+</br>
 
 ---
 
-ClodPod creates a macOS virtual machine sandbox configured to run applications like Claude Code, Open AI Codex, Google Gemini, and Cursor Agent. It facilitates disabling AI permission prompts so you can get work done without risking your entire computer.
-
-ClodPod maps any number of your project directories into the virtual machine so AI agents can work on your code while remaining isolated from your host computer.
-
-ClodPod virtual machines include Xcode and common development tools, and it's easy to extend to add your own development tools and configuration files.
-
-Key features:
+# Key features
 
 - Builds a virtual machine and launches AI agents with access to your projects
 - Enables mapping multiple projects in the same virtual machine simultaneously
