@@ -1756,9 +1756,6 @@ show_status() {
     echo "current image: $MACOS_IMAGE"
 }
 
-# Initialize command args before early-dispatch (vm_shell reads COMMAND_ARGS)
-COMMAND_ARGS=()
-
 # Intercept commands that need their own option parsing before the global loop.
 # But let -h/--help/--version pass through to the normal handler.
 for arg in "$@"; do
@@ -1799,6 +1796,7 @@ for arg in "$@"; do
             done
             shift
             # Parse shell args: [--ram SIZE] [target] [-- cmd...]
+            COMMAND_ARGS=()
             _shell_ram=""
             _shell_target=""
             while [[ $# -gt 0 ]]; do
