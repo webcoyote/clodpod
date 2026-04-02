@@ -480,69 +480,13 @@ wait_vm_running () {
     wait_vm_state "$1" "running"
 }
 
-run_vm () {
-    local vm_name="$1"
-    local ram_mb="${2:-0}"
-    local already_running_status=200
-    local launch_status=0
-    debug "Running $vm_name"
-
-    # Get directories to map into the VM
-    local run_args=()
-    while IFS= read -r -d '' arg; do
-        run_args+=("$arg")
-    done < <(get_map_directories)
-    [[ "${NO_GRAPHICS:-}" == "" ]] || run_args+=("--no-graphics")
-
-    _run_vm_locked() {
-        local current_state
-        current_state="$(get_vm_state_strict "$vm_name")"
-        if [[ "$current_state" == "running" ]]; then
-            exit "$already_running_status"
-        fi
-
-        local resolved_ram
-        resolved_ram="$(resolve_and_check_memory_budget "$ram_mb")"
-        [[ -n "$resolved_ram" ]] || exit 1
-        tart set "$vm_name" --memory "$resolved_ram"
-        tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
-        wait_vm_running "$vm_name"
-    }
-
-    if with_launch_lock _run_vm_locked; then
-        launch_status=0
-    else
-        launch_status=$?
-    fi
-
-    if [[ "$launch_status" -eq "$already_running_status" ]]; then
-        return 1
-    fi
-    if [[ "$launch_status" -ne 0 ]]; then
-        exit "$launch_status"
-    fi
-
-    # Mark all projects as active after virtual machine starts successfully
-    sqlite3 "$DB_FILE" <<EOF
-UPDATE projects SET active = 1;
-EOF
-
-    return 0
-}
-
 vm_run () {
     local vm_name="$1"
     local ram_mb="${2:-0}"
     local exclude_vm="${3:-}"
     local already_running_status=200
     local launch_status=0
-    if [[ "$#" -ge 3 ]]; then
-        shift 3
-    elif [[ "$#" -ge 2 ]]; then
-        shift 2
-    else
-        shift 1
-    fi
+    shift "$(( $# >= 3 ? 3 : $# ))"
 
     debug "Running $vm_name"
 
@@ -561,11 +505,7 @@ vm_run () {
         resolved_ram="$(resolve_and_check_memory_budget "$ram_mb" "$exclude_vm")"
         [[ -n "$resolved_ram" ]] || exit 1
         tart set "$vm_name" --memory "$resolved_ram"
-        if [[ "${#run_args[@]}" -gt 0 ]]; then
-            tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
-        else
-            tart run "$vm_name" </dev/null &>/dev/null & disown
-        fi
+        tart run "${run_args[@]}" "$vm_name" </dev/null &>/dev/null & disown
         wait_vm_running "$vm_name"
     }
 
@@ -583,6 +523,28 @@ vm_run () {
     fi
 
     return 0
+}
+
+run_vm () {
+    local vm_name="$1"
+    local ram_mb="${2:-0}"
+
+    # Get directories to map into the VM
+    local run_args=()
+    while IFS= read -r -d '' arg; do
+        run_args+=("$arg")
+    done < <(get_map_directories)
+
+    local status=0
+    vm_run "$vm_name" "$ram_mb" "" "${run_args[@]}" || status=$?
+    if [[ "$status" -ne 0 ]]; then
+        return "$status"
+    fi
+
+    # Mark all projects as active after virtual machine starts successfully
+    sqlite3 "$DB_FILE" <<EOF
+UPDATE projects SET active = 1;
+EOF
 }
 
 stop_vm () {
