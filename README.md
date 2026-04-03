@@ -121,9 +121,13 @@ per-instance RAM and the total budget:
     # Override RAM for one session
     clod shell --ram 6G dev
 
+    # Split budget across multiple VMs (default: 1)
+    clod set --vm-count 2
+
     # Reset to dynamic (use remaining budget)
     clod set --ram default dev
     clod set --max-memory default
+    clod set --vm-count default
 
 
 ## macOS versions
