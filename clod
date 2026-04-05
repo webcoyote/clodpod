@@ -645,6 +645,19 @@ cleanup_tmp_vm () {
 # Escape single quotes for safe SQLite string literals: ' → ''
 sql_escape() { printf '%s' "${1//\'/\'\'}"; }
 
+migrate_db() {
+    if [[ -f "$DATA_DIR/clodpod.sqlite" ]]; then
+        abort "Already migrated: $DATA_DIR/clodpod.sqlite exists"
+    fi
+    if [[ ! -f "$OLD_DB_FILE" ]]; then
+        abort "Nothing to migrate: no database at $OLD_DB_FILE"
+    fi
+    mkdir -p "$DATA_DIR"
+    mv "$OLD_DB_FILE" "$DATA_DIR/clodpod.sqlite"
+    DB_FILE="$DATA_DIR/clodpod.sqlite"
+    info "Migrated database to $DATA_DIR/clodpod.sqlite"
+}
+
 init_db() {
     debug "Creating $DB_FILE database..."
     sqlite3 "$DB_FILE" <<EOF
@@ -1746,6 +1759,7 @@ show_help() {
     echo "      set --ram SIZE NAME   Set per-instance RAM (use 'default' to reset)"
     echo "      set --max-memory SIZE Set workspace memory budget (use 'default' to reset)"
     echo "      set --vm-count N      Split budget across N VMs (use 'default' to reset to 1)"
+    echo "      migrate               Move database to ~/.local/share/clodpod/"
     echo ""
     echo "Examples:"
     echo "  clod create dev --ram 8G --dir project:/Users/me/src/app"
@@ -2011,6 +2025,10 @@ case "${1:-}" in
         ;;
     list|ls|l)
         list_all
+        exit 0
+        ;;
+    migrate)
+        migrate_db
         exit 0
         ;;
     status|st)
