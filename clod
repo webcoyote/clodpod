@@ -245,22 +245,26 @@ sync_ssh_key_to_all_instances() {
 }
 
 refresh_guest_home() {
-    debug "Configuring credentials..."
+    debug "Syncing guest directory..."
+    local guest_dir="$DATA_DIR/guest"
+    mkdir -p "$guest_dir"
+    rsync -a --delete --exclude '.gitconfig' --exclude '.ssh/' "$WORKSPACE/guest/" "$guest_dir/"
 
+    debug "Configuring credentials..."
     local git_user_name
     local git_user_email
     git_user_name="$(git config --global --get user.name 2>/dev/null || echo "")"
     git_user_email="$(git config --global --get user.email 2>/dev/null || echo "")"
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.name "$git_user_name"
-    git config set -f "$WORKSPACE/guest/home/.gitconfig" user.email "$git_user_email"
+    git config set -f "$guest_dir/home/.gitconfig" user.name "$git_user_name"
+    git config set -f "$guest_dir/home/.gitconfig" user.email "$git_user_email"
 
-    local guest_authorized_keys="$WORKSPACE/guest/home/.ssh/authorized_keys"
+    local guest_authorized_keys="$guest_dir/home/.ssh/authorized_keys"
     # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
     mkdir -m 700 -p "$(dirname "$guest_authorized_keys")"
     cp "$SSH_KEYFILE_PUB" "$guest_authorized_keys"
     chmod 600 "$guest_authorized_keys"
 
-    local guest_known_hosts="$WORKSPACE/guest/home/.ssh/known_hosts"
+    local guest_known_hosts="$guest_dir/home/.ssh/known_hosts"
     # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
     mkdir -m 700 -p "$(dirname "$guest_known_hosts")"
     ssh-keyscan github.com > "$guest_known_hosts"
@@ -967,7 +971,7 @@ vm_create() {
         vm_args+=("--dir" "${dir_names[$i]}:${dir_paths[$i]}")
         i=$((i + 1))
     done
-    vm_args+=("--dir" "__install:$WORKSPACE/guest")
+    vm_args+=("--dir" "__install:$DATA_DIR/guest")
     vm_run "$TMP_VM_NAME" 0 "" "${vm_args[@]}"
 
     trace "Running configure.sh..."
@@ -1245,7 +1249,7 @@ EOF
 
     # Always map the guest directory into the VM as "__install"
     # so install/configure scripts are available during build
-    printf '%s\0' "--dir" "__install:$WORKSPACE/guest"
+    printf '%s\0' "--dir" "__install:$DATA_DIR/guest"
 
     if [[ -n "$result" ]]; then
         while IFS='|' read -r name path; do
