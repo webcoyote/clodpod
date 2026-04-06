@@ -93,6 +93,32 @@ fi
 
 
 ###############################################################################
+# Install AI developer tools
+###############################################################################
+debug "Installing AI developer tools..."
+
+# Claude Code (brew cask)
+if [[ "$VERBOSE" -lt 3 ]]; then
+    brew install --quiet --cask claude-code 2>/dev/null || brew upgrade --quiet --cask claude-code 2>/dev/null || true
+else
+    brew install --cask claude-code 2>/dev/null || brew upgrade --cask claude-code 2>/dev/null || true
+fi
+
+# Codex (brew cask)
+if [[ "$VERBOSE" -lt 3 ]]; then
+    brew install --quiet --cask codex 2>/dev/null || brew upgrade --quiet --cask codex 2>/dev/null || true
+else
+    brew install --cask codex 2>/dev/null || brew upgrade --cask codex 2>/dev/null || true
+fi
+
+# Gemini CLI (npm global)
+if command -v npm &>/dev/null; then
+    debug "Installing gemini-cli via npm..."
+    npm install --global --silent @google/gemini-cli 2>/dev/null || true
+fi
+
+
+###############################################################################
 # Create clodpod user and group
 ###############################################################################
 CLODPOD_HOME="/Users/clodpod"

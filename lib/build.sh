@@ -119,6 +119,9 @@ build_base_vm() {
         fi
     fi
 
+    # Sync SSH key so interactive session can connect
+    vm_sync_authorized_key "$TMP_VM_NAME"
+
     # Interactive session: let user log in to services
     info "Log in to services and exit when done."
     local ipaddr
