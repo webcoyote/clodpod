@@ -69,6 +69,13 @@ EOF
     if [[ "$has_base_name" -eq 0 ]]; then
         sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN base_name TEXT;"
     fi
+
+    # Migration: add ssh_user column to instances table
+    local has_ssh_user
+    has_ssh_user=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ssh_user') || true
+    if [[ "$has_ssh_user" -eq 0 ]]; then
+        sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ssh_user TEXT;"
+    fi
 }
 
 vm_instance_exists() {
@@ -111,6 +118,16 @@ vm_get_only_instance_name() {
     sqlite3 "$DB_FILE" <<EOF
 SELECT name FROM instances ORDER BY created_at DESC, name ASC LIMIT 1;
 EOF
+}
+
+vm_get_ssh_user() {
+    local instance_name="$1"
+    local user
+    user=$(sqlite3 "$DB_FILE" <<EOF
+SELECT COALESCE(ssh_user, 'clodpod') FROM instances WHERE name = '$(sql_escape "$instance_name")' LIMIT 1;
+EOF
+)
+    echo "${user:-clodpod}"
 }
 
 vm_get_instance_dirs() {
