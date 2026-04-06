@@ -140,6 +140,9 @@ for arg in "$@"; do
 done
 
 # Parse optional arguments
+NO_GRAPHICS="${NO_GRAPHICS:-}"
+SHOULD_SELECT_PROJECT=true
+ALLOW_SUDO=
 NEW_ARGS=()
 COMMAND_ARGS=()
 while [[ $# -gt 0 ]]; do
