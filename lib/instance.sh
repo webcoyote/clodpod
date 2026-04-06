@@ -52,13 +52,14 @@ ssh_quote_env() { printf "%s='%s'" "$1" "${2//\'/\'\\\'\'}"; }
 
 ssh_into_vm() {
     local vm_name="$1"
-    local project_name="${2:-}"
-    local initial_dir="${3:-}"
+    local ssh_user="${2:-admin}"
+    local project_name="${3:-}"
+    local initial_dir="${4:-}"
     local ipaddr
     local command_args_b64
 
     ipaddr="$(get_vm_ip_or_abort "$vm_name")"
-    debug "Connect to $vm_name (ssh clodpod@$ipaddr)"
+    debug "Connect to $vm_name (ssh $ssh_user@$ipaddr)"
 
     command_args_b64="$(encode_command_args)"
 
@@ -69,7 +70,7 @@ ssh_into_vm() {
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
-        "clodpod@$ipaddr" \
+        "$ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
             "$(ssh_quote_env PROJECT "$project_name")" \
@@ -81,37 +82,51 @@ ssh_into_vm() {
 
 vm_sync_authorized_key() {
     local vm_name="$1"
+    local ssh_user="${2:-admin}"
     local pub_key_b64
 
     pub_key_b64="$(base64 < "$SSH_KEYFILE_PUB" | tr -d '\n')"
     # shellcheck disable=SC2016 #  Expressions don't expand in single quotes, use double quotes for that.
-    tart exec -it "$vm_name" \
-        "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
-        bash -lc '
-            sudo install -d -m 700 -o clodpod -g clodpod /Users/clodpod/.ssh
-            printf "%s" "$PUB_KEY_B64" | /usr/bin/base64 -D | sudo tee /Users/clodpod/.ssh/authorized_keys >/dev/null
-            sudo chown clodpod:clodpod /Users/clodpod/.ssh/authorized_keys
-            sudo chmod 600 /Users/clodpod/.ssh/authorized_keys
-        '
+    if [[ "$ssh_user" == "admin" ]]; then
+        # No sudo needed — tart exec runs as admin, admin owns .ssh
+        tart exec -it "$vm_name" \
+            "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
+            bash -lc '
+                install -d -m 700 /Users/admin/.ssh
+                printf "%s" "$PUB_KEY_B64" | /usr/bin/base64 -D > /Users/admin/.ssh/authorized_keys
+                chmod 600 /Users/admin/.ssh/authorized_keys
+            '
+    else
+        # Legacy: clodpod user needs sudo
+        tart exec -it "$vm_name" \
+            "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
+            bash -lc '
+                sudo install -d -m 700 -o clodpod -g clodpod /Users/clodpod/.ssh
+                printf "%s" "$PUB_KEY_B64" | /usr/bin/base64 -D | sudo tee /Users/clodpod/.ssh/authorized_keys >/dev/null
+                sudo chown clodpod:clodpod /Users/clodpod/.ssh/authorized_keys
+                sudo chmod 600 /Users/clodpod/.ssh/authorized_keys
+            '
+    fi
 }
 
 vm_list() {
     local result
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
-SELECT name, vm_name, ram_mb, COALESCE(base_name, '-') FROM instances ORDER BY created_at DESC, name ASC;
+SELECT name, vm_name, ram_mb, COALESCE(base_name, '-'), COALESCE(ssh_user, 'clodpod') FROM instances ORDER BY created_at DESC, name ASC;
 EOF
 )
 
     [[ -n "$result" ]] || return 1
 
     echo "INSTANCES"
-    printf "%-20s %-10s %-10s %-12s %-15s %s\n" "NAME" "BASE" "RAM (MB)" "STATE" "IP" "DIRS"
+    printf "%-20s %-10s %-10s %-8s %-12s %-15s %s\n" "NAME" "BASE" "RAM (MB)" "USER" "STATE" "IP" "DIRS"
 
     local instance_name
     local vm_name
     local stored_ram
     local base_name
-    while IFS='|' read -r instance_name vm_name stored_ram base_name; do
+    local ssh_user
+    while IFS='|' read -r instance_name vm_name stored_ram base_name ssh_user; do
         local state
         local ipaddr="-"
         local ram_display
@@ -150,7 +165,7 @@ EOF
         fi
         [[ -n "$dirs" ]] || dirs="-"
 
-        printf "%-20s %-10s %-10s %-12s %-15s %s\n" "$instance_name" "$base_name" "$ram_display" "$state" "$ipaddr" "$dirs"
+        printf "%-20s %-10s %-10s %-8s %-12s %-15s %s\n" "$instance_name" "$base_name" "$ram_display" "$ssh_user" "$state" "$ipaddr" "$dirs"
     done <<< "$result"
 }
 
@@ -210,8 +225,15 @@ vm_shell() {
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
     fi
 
+    local ssh_user
+    ssh_user="$(vm_get_ssh_user "$instance_name")"
+    if [[ "$ssh_user" == "clodpod" ]]; then
+        info "Instance $instance_name uses legacy clodpod user."
+        info "Recreate to use admin: clod destroy $instance_name && clod create $instance_name --dir ..."
+    fi
+
     if [[ "${SSH_KEY_CREATED:-false}" == "true" ]]; then
-        vm_sync_authorized_key "$vm_name"
+        vm_sync_authorized_key "$vm_name" "$ssh_user"
     fi
 
     local initial_dir=""
@@ -220,7 +242,7 @@ vm_shell() {
         debug "initial directory: ${initial_dir:-}"
     fi
 
-    ssh_into_vm "$vm_name" "$primary_name" "$initial_dir"
+    ssh_into_vm "$vm_name" "$ssh_user" "$primary_name" "$initial_dir"
 }
 
 vm_stop_instance() {
@@ -475,6 +497,9 @@ vm_create() {
         abort "Error: base VM missing ($base_vm). Run 'clod build-base --profile $create_base' to rebuild."
     fi
 
+    # Resolve ALLOW_SUDO from stored setting for configure.sh passthrough
+    ALLOW_SUDO="${ALLOW_SUDO:-$(get_setting "allow_sudo" "false")}"
+
     ensure_ssh_key
     refresh_guest_home
 
@@ -494,7 +519,7 @@ vm_create() {
 
     trace "Running configure.sh..."
     if ! tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=${ALLOW_SUDO:-false}" bash \
         "/Volumes/My Shared Files/__install/configure.sh"; then
         abort "configure.sh failed — named VM will not be saved"
     fi
@@ -512,8 +537,8 @@ vm_create() {
         ram_sql="$create_ram_mb"
     fi
     sql="BEGIN IMMEDIATE;
-INSERT INTO instances (name, vm_name, ram_mb, base_name, created_at)
-VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, '$(sql_escape "$create_base")', datetime('now'));"
+INSERT INTO instances (name, vm_name, ram_mb, base_name, ssh_user, created_at)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, '$(sql_escape "$create_base")', 'admin', datetime('now'));"
 
     i=0
     while [[ "$i" -lt "${#dir_names[@]}" ]]; do
