@@ -94,11 +94,12 @@ build_base_vm() {
     clone_vm "$OCI_VM_NAME" "$TMP_VM_NAME"
     run_vm "$TMP_VM_NAME" 0
 
+    if [[ -n "${CLODPOD_PASSWORD:-}" ]]; then
+        warn "CLODPOD_PASSWORD is no longer supported (SSH uses admin user). Ignoring."
+    fi
+
     trace "Running install.sh..."
     INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=${ALLOW_SUDO:-false}" )
-    if [[ -n "${CLODPOD_PASSWORD:-}" ]]; then
-        INSTALL_ENV+=( "CLODPOD_PASSWORD=$CLODPOD_PASSWORD" )
-    fi
 
     if ! tart exec -it "$TMP_VM_NAME" \
         "${INSTALL_ENV[@]}" bash \
@@ -122,8 +123,8 @@ build_base_vm() {
         fi
     fi
 
-    # Sync SSH key so interactive session can connect
-    vm_sync_authorized_key "$TMP_VM_NAME"
+    # Sync SSH key so interactive session can connect (base always uses admin)
+    vm_sync_authorized_key "$TMP_VM_NAME" "admin"
 
     # Interactive session: let user log in to services
     info "Log in to services and exit when done."
@@ -134,7 +135,7 @@ build_base_vm() {
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
-        "clodpod@$ipaddr" \
+        "admin@$ipaddr" \
         /usr/bin/env "TERM=xterm-256color" zsh --login || true
 
     trace "Stopping $TMP_VM_NAME to flush directory service writes..."
@@ -201,6 +202,9 @@ cmd_build_base() {
         info "Imported install script to $profile_dir/install-extra.sh"
     fi
 
+    # Resolve ALLOW_SUDO from stored setting (early-dispatched, no global option parsing)
+    ALLOW_SUDO="${ALLOW_SUDO:-$(get_setting "allow_sudo" "false")}"
+
     [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
     ensure_ssh_key
     refresh_guest_home
@@ -225,13 +229,14 @@ build_dst_vm() {
 
     trace "Running configure.sh..."
     if ! tart exec -it "$TMP_VM_NAME" \
-        "/usr/bin/env" "VERBOSE=$VERBOSE" bash \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=${ALLOW_SUDO:-false}" bash \
         "/Volumes/My Shared Files/__install/configure.sh"; then
         abort "configure.sh failed — dst VM will not be saved"
     fi
 
     trace "Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+    set_setting "dst_ssh_user" "admin"
 
     debug "Building $DST_VM_NAME successful"
 }
@@ -263,7 +268,9 @@ legacy_start_and_connect() {
         open "/System/Library/PreferencePanes/Security.prefPane"
     fi
 
-    debug "Connect to $DST_VM_NAME (ssh clodpod@$ipaddr)"
+    local dst_ssh_user
+    dst_ssh_user="$(get_setting "dst_ssh_user" "clodpod")"
+    debug "Connect to $DST_VM_NAME (ssh $dst_ssh_user@$ipaddr)"
 
     local command_args_b64=""
     if [[ ${#COMMAND_ARGS[@]} -gt 0 ]]; then
@@ -283,7 +290,7 @@ legacy_start_and_connect() {
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
-        "clodpod@$ipaddr" \
+        "$dst_ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
             "$(ssh_quote_env PROJECT "$PROJECT_NAME")" \
