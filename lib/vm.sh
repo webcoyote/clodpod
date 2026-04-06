@@ -8,7 +8,7 @@ vm_name_to_vm_name() {
 
 vm_name_reserved() {
     case "$1" in
-        xcode|oci-base|xcode-base|tmp*|oci-tmp*)
+        xcode|oci-base|xcode-base|base-*|oci-*|tmp*)
             return 0
             ;;
         *)

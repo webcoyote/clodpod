@@ -54,8 +54,8 @@ validate_config() {
 # shellcheck disable=SC2034,SC2154 # variables used/set by clod and other modules
 init_config() {
     VERSION="1.0.20"
-    OCI_VM_NAME="clodpod-oci-base"
-    BASE_VM_NAME="clodpod-xcode-base"
+    OCI_VM_NAME="clodpod-oci-${MACOS_VERSION}-${MACOS_FLAVOR}"
+    BASE_VM_NAME="clodpod-base-default"
     DST_VM_NAME="clodpod-xcode"
     DATA_DIR="$HOME/.local/share/clodpod"
     OLD_DB_FILE="$WORKSPACE/.clodpod.sqlite"
@@ -66,4 +66,28 @@ init_config() {
     SSH_KEY_CREATED=false
     MACOS_IMAGE="ghcr.io/cirruslabs/macos-$MACOS_VERSION-$MACOS_FLAVOR:latest"
     debug "MacOS image: $MACOS_IMAGE"
+}
+
+# Rename legacy VM names to new scheme (one-time, idempotent)
+migrate_vm_names() {
+    local old new
+    # OCI cache: clodpod-oci-base → clodpod-oci-<version>-<flavor>
+    old="clodpod-oci-base"
+    new="$OCI_VM_NAME"
+    if [[ "$old" != "$new" ]] && tart list --quiet 2>/dev/null | grep -q "^${old}$"; then
+        if ! tart list --quiet 2>/dev/null | grep -q "^${new}$"; then
+            info "Renaming VM $old → $new"
+            tart rename "$old" "$new"
+        fi
+    fi
+
+    # Base: clodpod-xcode-base → clodpod-base-default
+    old="clodpod-xcode-base"
+    new="$BASE_VM_NAME"
+    if [[ "$old" != "$new" ]] && tart list --quiet 2>/dev/null | grep -q "^${old}$"; then
+        if ! tart list --quiet 2>/dev/null | grep -q "^${new}$"; then
+            info "Renaming VM $old → $new"
+            tart rename "$old" "$new"
+        fi
+    fi
 }

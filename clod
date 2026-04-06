@@ -43,6 +43,7 @@ validate_config
 init_config
 install_tools
 init_db
+migrate_vm_names
 
 
 # Intercept commands that need their own option parsing before the global loop.
