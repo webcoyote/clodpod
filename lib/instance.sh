@@ -415,10 +415,16 @@ vm_create() {
     fi
 
     local create_ram_mb=""
+    local create_base="default"
     local dir_names=()
     local dir_paths=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --base)
+                [[ $# -ge 2 ]] || abort "Error: --base requires a profile name"
+                create_base="$2"
+                shift 2
+                ;;
             --ram)
                 [[ $# -ge 2 ]] || abort "Error: --ram requires a size value (e.g. 8G)"
                 create_ram_mb="$(parse_ram_size "$2")"
@@ -455,8 +461,13 @@ vm_create() {
         esac
     done
 
-    if ! get_vm_exists "$BASE_VM_NAME"; then
-        abort "Error: base VM missing. Run 'clod shell' first to bootstrap it."
+    local base_vm
+    base_vm="$(base_get_vm_name "$create_base")"
+    if [[ -z "$base_vm" ]]; then
+        abort "Error: base '$create_base' not found. Run 'clod build-base --profile $create_base' first."
+    fi
+    if ! get_vm_exists "$base_vm"; then
+        abort "Error: base VM missing ($base_vm). Run 'clod build-base --profile $create_base' to rebuild."
     fi
 
     ensure_ssh_key
@@ -465,7 +476,7 @@ vm_create() {
     TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
     trap cleanup_tmp_vm EXIT
 
-    clone_vm "$BASE_VM_NAME" "$TMP_VM_NAME"
+    clone_vm "$base_vm" "$TMP_VM_NAME"
 
     local vm_args=()
     local i=0
@@ -497,7 +508,7 @@ vm_create() {
     fi
     sql="BEGIN IMMEDIATE;
 INSERT INTO instances (name, vm_name, ram_mb, base_name, created_at)
-VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, 'default', datetime('now'));"
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, '$(sql_escape "$create_base")', datetime('now'));"
 
     i=0
     while [[ "$i" -lt "${#dir_names[@]}" ]]; do
