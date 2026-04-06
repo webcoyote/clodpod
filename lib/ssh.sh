@@ -23,7 +23,7 @@ ensure_ssh_key() {
 # Temporarily starts stopped VMs, pushes key, stops them again.
 sync_ssh_key_to_all_instances() {
     local instance_rows
-    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0) FROM instances;" 2>/dev/null)" || return 0
+    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0), COALESCE(ssh_user, 'clodpod') FROM instances;" 2>/dev/null)" || return 0
     [[ -n "$instance_rows" ]] || return 0
 
     local pub_key
@@ -31,12 +31,14 @@ sync_ssh_key_to_all_instances() {
 
     # Also sync to legacy clodpod-xcode if it exists
     if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
+        local dst_ssh_user
+        dst_ssh_user="$(get_setting "dst_ssh_user" "clodpod")"
         instance_rows="${instance_rows:+$instance_rows
-}${DST_VM_NAME}|0"
+}${DST_VM_NAME}|0|${dst_ssh_user}"
     fi
 
-    local vm ram_mb
-    while IFS='|' read -r vm ram_mb; do
+    local vm ram_mb ssh_user
+    while IFS='|' read -r vm ram_mb ssh_user; do
         if ! get_vm_exists "$vm"; then
             continue
         fi
@@ -44,16 +46,13 @@ sync_ssh_key_to_all_instances() {
         if [[ "$(get_vm_state "$vm")" != "running" ]]; then
             was_stopped=true
             (vm_run "$vm" "$ram_mb" "") || true
-            # Check if VM is running (vm_run returns 1 if already running, which is fine)
             if [[ "$(get_vm_state "$vm")" != "running" ]]; then
                 warn "Could not start $vm for SSH key sync — skipping"
                 continue
             fi
         fi
-        debug "Syncing SSH key to $vm..."
-        printf '%s\n' "$pub_key" | tart exec "$vm" -- \
-            bash -c 'mkdir -m 700 -p /Users/clodpod/.ssh && cat > /Users/clodpod/.ssh/authorized_keys && chmod 600 /Users/clodpod/.ssh/authorized_keys' \
-            2>/dev/null || true
+        debug "Syncing SSH key to $vm ($ssh_user)..."
+        vm_sync_authorized_key "$vm" "$ssh_user"
         if [[ "$was_stopped" == "true" ]]; then
             tart stop "$vm" 2>/dev/null || true
         fi
