@@ -46,37 +46,62 @@ sudo scutil --set HostName "clodpod-xcode"
 
 
 ###############################################################################
-# Configure clodpod user
+# Configure admin user home
 ###############################################################################
-debug "Configure clodpod user..."
+debug "Configure admin user home..."
 
 # Copy files to home directory
 DIST_DIR="/Volumes/My Shared Files/__install"
-sudo mkdir -p "/Users/clodpod"
-sudo cp -rf "$DIST_DIR/home/." "/Users/clodpod/"
+sudo cp -rf "$DIST_DIR/home/." "/Users/admin/"
 
-# Make clodpod the owner of the files
-sudo chown -R "clodpod:clodpod" "/Users/clodpod"
+# Fix ownership on copied payload only (not entire home — admin owns Library/ etc.)
+while IFS= read -r -d '' entry; do
+    entry="${entry#./}"
+    sudo chown -R "admin:staff" "/Users/admin/$entry"
+done < <(cd "$DIST_DIR/home" && find . -mindepth 1 -maxdepth 1 -print0)
 
-# Fixup file permissions
-sudo chmod 755 "/Users/clodpod"
-sudo chmod 700 "/Users/clodpod/.ssh"
-if [[ -f "/Users/clodpod/.ssh/authorized_keys" ]]; then
-    sudo chmod 600 "/Users/clodpod/.ssh/authorized_keys"
+# Fixup SSH permissions
+sudo chmod 755 "/Users/admin"
+sudo chmod 700 "/Users/admin/.ssh"
+if [[ -f "/Users/admin/.ssh/authorized_keys" ]]; then
+    sudo chmod 600 "/Users/admin/.ssh/authorized_keys"
 fi
-if [[ -f "/Users/clodpod/.ssh/known_hosts" ]]; then
-    sudo chmod 600 "/Users/clodpod/.ssh/known_hosts"
+if [[ -f "/Users/admin/.ssh/known_hosts" ]]; then
+    sudo chmod 600 "/Users/admin/.ssh/known_hosts"
 fi
-if [[ -f "/Users/clodpod/.ssh/id_ed25519" ]]; then
-    sudo chmod 600 "/Users/clodpod/.ssh/id_ed25519"
+if [[ -f "/Users/admin/.ssh/id_ed25519" ]]; then
+    sudo chmod 600 "/Users/admin/.ssh/id_ed25519"
 fi
-if [[ -f "/Users/clodpod/.ssh/id_ed25519.pub" ]]; then
-    sudo chmod 644 "/Users/clodpod/.ssh/id_ed25519.pub"
+if [[ -f "/Users/admin/.ssh/id_ed25519.pub" ]]; then
+    sudo chmod 644 "/Users/admin/.ssh/id_ed25519.pub"
 fi
 
 
 ###############################################################################
-# Allow clodpod user to update homebrew
+# Allow admin user to update homebrew
 ###############################################################################
-debug "Enable clodpod to update brew files"
-sudo chown -R "clodpod:clodpod" "$(brew --prefix)"
+debug "Enable admin to update brew files"
+sudo chown -R "admin:staff" "$(brew --prefix)"
+
+
+###############################################################################
+# Finalize sudo configuration
+# configure.sh is the final authority on sudo state per-instance.
+# This handles base->instance inheritance: a base built with ALLOW_SUDO=true
+# bakes /etc/sudoers.d/clodpod, but an instance created with ALLOW_SUDO=false
+# must remove it.
+###############################################################################
+ALLOW_SUDO="${ALLOW_SUDO:-false}"
+if [[ "$ALLOW_SUDO" == "true" ]]; then
+    debug "Ensuring passwordless sudo for admin..."
+    echo "admin ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/clodpod >/dev/null
+    sudo chmod 440 /etc/sudoers.d/clodpod
+else
+    debug "Removing all admin NOPASSWD rules..."
+    sudo bash -c '
+        for f in /etc/sudoers.d/*; do
+            [ -f "$f" ] || continue
+            grep -qE "^(admin|%admin).*NOPASSWD" "$f" 2>/dev/null && rm -f "$f"
+        done
+    '
+fi
