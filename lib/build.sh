@@ -106,6 +106,9 @@ build_base_vm() {
         abort "install.sh failed — base VM will not be saved"
     fi
 
+    # Mark install as done so cleanup preserves temp VM if interrupted
+    BUILD_INSTALL_DONE=true
+
     # Run profile install-extra.sh if it exists
     local profile_dir="$HOME/.config/clodpod/profiles/${profile_name}"
     if [[ -f "$profile_dir/install-extra.sh" ]]; then
@@ -139,6 +142,7 @@ build_base_vm() {
     trace "Renaming $TMP_VM_NAME to $base_vm_name"
     tart rename "$TMP_VM_NAME" "$base_vm_name"
     TMP_VM_NAME=""
+    BUILD_INSTALL_DONE=""
     set_setting "allow_sudo" "${ALLOW_SUDO:-false}"
     set_setting "oci_base_image" "$MACOS_IMAGE"
     base_register "$profile_name" "$base_vm_name" "${MACOS_VERSION}-${MACOS_FLAVOR}"

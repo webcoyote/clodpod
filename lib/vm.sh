@@ -361,7 +361,11 @@ delete_vm () {
 }
 
 cleanup_tmp_vm () {
-    if [[ -n "${TMP_VM_NAME:-}" ]]; then
+    # If build completed install.sh, temp VM is valuable — don't delete it
+    if [[ "${BUILD_INSTALL_DONE:-}" == "true" ]] && [[ -n "${TMP_VM_NAME:-}" ]]; then
+        warn "Build interrupted after install. Temp VM ${TMP_VM_NAME} preserved."
+        warn "Resume with: tart rename ${TMP_VM_NAME} <base-name>"
+    elif [[ -n "${TMP_VM_NAME:-}" ]]; then
         delete_vm "$TMP_VM_NAME"
     fi
     if [[ -n "${TMP_OCI_VM_NAME:-}" ]]; then
@@ -369,7 +373,8 @@ cleanup_tmp_vm () {
     fi
     # Rollback: if old base was renamed aside but new base was never created, restore it
     if [[ -n "${OLD_BASE_VM_NAME:-}" ]]; then
-        if ! tart list --quiet | grep "^${BASE_VM_NAME}$" >/dev/null 2>&1; then
+        if ! tart list --quiet | grep -q "^${BASE_VM_NAME}$" 2>/dev/null; then
+            info "Restoring backup base VM..."
             tart rename "$OLD_BASE_VM_NAME" "$BASE_VM_NAME" 2>/dev/null || true
         else
             delete_vm "$OLD_BASE_VM_NAME"
