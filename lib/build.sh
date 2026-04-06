@@ -61,24 +61,41 @@ configure_dhcp_lease() {
 }
 
 build_base_vm() {
-    [[ "${REBUILD_BASE:-}" != "" ]] || return 0
+    local profile="${1:-}"
+    local base_vm_name="$BASE_VM_NAME"
+    local profile_name="default"
 
-    debug "Building $BASE_VM_NAME..."
+    if [[ -n "$profile" ]]; then
+        profile_name="$profile"
+        base_vm_name="clodpod-base-${profile}"
+    fi
+
+    # When called from legacy flow, skip if not requested
+    if [[ -z "$profile" ]] && [[ "${REBUILD_BASE:-}" == "" ]]; then
+        return 0
+    fi
+
+    debug "Building $base_vm_name (profile: $profile_name)..."
+
+    ensure_oci_base
 
     # Move existing base aside instead of deleting — allows rollback on failure
     OLD_BASE_VM_NAME=""
-    if tart list --quiet | grep "^${BASE_VM_NAME}$" >/dev/null 2>&1; then
-        OLD_BASE_VM_NAME="${BASE_VM_NAME}-old-$(openssl rand -hex 4)"
-        trace "Renaming $BASE_VM_NAME to $OLD_BASE_VM_NAME (backup)"
-        tart rename "$BASE_VM_NAME" "$OLD_BASE_VM_NAME"
+    if tart list --quiet | grep "^${base_vm_name}$" >/dev/null 2>&1; then
+        OLD_BASE_VM_NAME="${base_vm_name}-old-$(openssl rand -hex 4)"
+        trace "Renaming $base_vm_name to $OLD_BASE_VM_NAME (backup)"
+        tart rename "$base_vm_name" "$OLD_BASE_VM_NAME"
     fi
+
+    TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
+    trap cleanup_tmp_vm EXIT
 
     trace "Cloning $OCI_VM_NAME to $TMP_VM_NAME..."
     clone_vm "$OCI_VM_NAME" "$TMP_VM_NAME"
     run_vm "$TMP_VM_NAME" 0
 
     trace "Running install.sh..."
-    INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=$ALLOW_SUDO" )
+    INSTALL_ENV=( "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=${ALLOW_SUDO:-false}" )
     if [[ -n "${CLODPOD_PASSWORD:-}" ]]; then
         INSTALL_ENV+=( "CLODPOD_PASSWORD=$CLODPOD_PASSWORD" )
     fi
@@ -89,14 +106,39 @@ build_base_vm() {
         abort "install.sh failed — base VM will not be saved"
     fi
 
+    # Run profile install-extra.sh if it exists
+    local profile_dir="$HOME/.config/clodpod/profiles/${profile_name}"
+    if [[ -f "$profile_dir/install-extra.sh" ]]; then
+        trace "Running install-extra.sh for profile $profile_name..."
+        # Copy to guest dir so VM can access it
+        cp "$profile_dir/install-extra.sh" "$DATA_DIR/guest/install-extra.sh"
+        if ! tart exec -it "$TMP_VM_NAME" \
+            "${INSTALL_ENV[@]}" bash \
+            "/Volumes/My Shared Files/__install/install-extra.sh"; then
+            abort "install-extra.sh failed — base VM will not be saved"
+        fi
+    fi
+
+    # Interactive session: let user log in to services
+    info "Log in to services and exit when done."
+    local ipaddr
+    ipaddr="$(tart ip --wait 20 "$TMP_VM_NAME")"
+    ssh -q -tt \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "$SSH_KEYFILE_PRIV" \
+        "clodpod@$ipaddr" \
+        /usr/bin/env "TERM=xterm-256color" zsh --login || true
+
     trace "Stopping $TMP_VM_NAME to flush directory service writes..."
     stop_vm "$TMP_VM_NAME"
 
-    trace "Renaming $TMP_VM_NAME to $BASE_VM_NAME"
-    tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
-    set_setting "allow_sudo" "$ALLOW_SUDO"
+    trace "Renaming $TMP_VM_NAME to $base_vm_name"
+    tart rename "$TMP_VM_NAME" "$base_vm_name"
+    TMP_VM_NAME=""
+    set_setting "allow_sudo" "${ALLOW_SUDO:-false}"
     set_setting "oci_base_image" "$MACOS_IMAGE"
-    base_register "default" "$BASE_VM_NAME" "${MACOS_VERSION}-${MACOS_FLAVOR}"
+    base_register "$profile_name" "$base_vm_name" "${MACOS_VERSION}-${MACOS_FLAVOR}"
 
     # New base built successfully — remove old base
     if [[ -n "$OLD_BASE_VM_NAME" ]]; then
@@ -105,11 +147,52 @@ build_base_vm() {
         OLD_BASE_VM_NAME=""
     fi
 
-    debug "Building $BASE_VM_NAME successful"
+    debug "Building $base_vm_name successful"
 
     # Prune OCI cache — base VM is built, cache is no longer needed
     debug "Pruning OCI cache..."
     tart prune --space-budget=0 2>/dev/null || true
+}
+
+# Explicit build-base command
+cmd_build_base() {
+    local profile="default"
+    local install_script=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile)
+                [[ $# -ge 2 ]] || abort "Usage: clod build-base --profile <name>"
+                profile="$2"
+                shift 2
+                ;;
+            --install-script)
+                [[ $# -ge 2 ]] || abort "Usage: clod build-base --install-script <path>"
+                install_script="$2"
+                shift 2
+                ;;
+            *)
+                abort "Error: unknown build-base option ($1)"
+                ;;
+        esac
+    done
+
+    # Import install script into profile if provided
+    if [[ -n "$install_script" ]]; then
+        local resolved_script
+        resolved_script="$(resolve_physical_path "$install_script" 2>/dev/null || true)"
+        [[ -f "$resolved_script" ]] || abort "Error: install script not found ($install_script)"
+        local profile_dir="$HOME/.config/clodpod/profiles/${profile}"
+        mkdir -p "$profile_dir"
+        cp "$resolved_script" "$profile_dir/install-extra.sh"
+        info "Imported install script to $profile_dir/install-extra.sh"
+    fi
+
+    [[ "$VERBOSE" -ge 2 ]] || VERBOSE=2
+    ensure_ssh_key
+    refresh_guest_home
+    configure_dhcp_lease
+    build_base_vm "$profile"
 }
 
 build_dst_vm() {

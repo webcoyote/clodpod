@@ -71,6 +71,8 @@ show_help() {
     echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
     echo "  cu, cursor [PATH] [NAME]  Run Cursor Agent"
     echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
+    echo "      build-base [--profile NAME] [--install-script PATH]"
+    echo "                           Build a base image with optional profile and interactive session"
     echo "  cr, create NAME [--ram SIZE] [--dir name:path ...]"
     echo "                           Create a named VM from the base image"
     echo "  s,  shell  [NAME|PATH] [NAME]"

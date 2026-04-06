@@ -56,6 +56,14 @@ for arg in "$@"; do
         -*)
             continue
             ;;
+        build-base)
+            while [[ "${1:-}" != "$arg" ]]; do
+                shift
+            done
+            shift
+            cmd_build_base "$@"
+            exit 0
+            ;;
         create|cr)
             while [[ "${1:-}" != "$arg" ]]; do
                 shift
