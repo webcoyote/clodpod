@@ -4,7 +4,6 @@ trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 #SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ALLOW_SUDO="${ALLOW_SUDO:-false}"
-CLODPOD_PASSWORD="${CLODPOD_PASSWORD:-}"
 
 
 ###############################################################################
@@ -119,90 +118,24 @@ fi
 
 
 ###############################################################################
-# Create clodpod user and group
+# Configure admin user for SSH access
 ###############################################################################
-CLODPOD_HOME="/Users/clodpod"
-debug "Setting up clodpod user and group..."
+debug "Configuring admin user..."
 
-# Check if group exists, create if needed
-if ! dscl . -read /Groups/clodpod &>/dev/null 2>&1; then
-    debug "Creating clodpod group..."
-
-    # Find next available UID/GID starting from 501
-    NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-    NEXT_UID=$((NEXT_UID + 1))
-
-    # Create group
-    sudo dscl . -create /Groups/clodpod
-    GROUP_ID=$NEXT_UID
-else
-    debug "Group clodpod already exists"
-    GROUP_ID=$(dscl . -read /Groups/clodpod PrimaryGroupID 2>/dev/null | awk '{print $2}')
-fi
-
-# Ensure group has all required properties (idempotent)
-debug "Configuring clodpod group properties..."
-if [[ -z "${GROUP_ID:-}" ]]; then
-    # Group exists but has no PrimaryGroupID, find next available
-    NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-    GROUP_ID=$((NEXT_UID + 1))
-fi
-sudo dscl . -create /Groups/clodpod PrimaryGroupID "$GROUP_ID"
-sudo dscl . -create /Groups/clodpod RealName "clodpod Group"
-
-# Check if user exists, create if needed
-if ! dscl . -read /Users/clodpod &>/dev/null 2>&1; then
-    debug "Creating clodpod user..."
-
-    # Find next available UID
-    NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-    NEXT_UID=$((NEXT_UID + 1))
-
-    # Create user
-    sudo dscl . -create /Users/clodpod
-    USER_ID=$NEXT_UID
-else
-    debug "User clodpod already exists"
-    USER_ID=$(dscl . -read /Users/clodpod UniqueID 2>/dev/null | awk '{print $2}')
-fi
-
-# Ensure user has all required properties (idempotent)
-debug "Configuring clodpod user properties..."
-if [[ -z "${USER_ID:-}" ]]; then
-    # User exists but has no UniqueID, find next available
-    NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-    USER_ID=$((NEXT_UID + 1))
-fi
-sudo dscl . -create /Users/clodpod UniqueID "$USER_ID"
-sudo dscl . -create /Users/clodpod PrimaryGroupID "$GROUP_ID"
-sudo dscl . -create /Users/clodpod RealName "clodpod User"
-sudo dscl . -create /Users/clodpod NFSHomeDirectory "$CLODPOD_HOME"
-sudo dscl . -create /Users/clodpod UserShell "/bin/zsh"
-
-# Configure sudo
+# Configure passwordless sudo — our own sudoers file
 if [[ "$ALLOW_SUDO" == "true" ]]; then
-    debug "Enabling sudo access for clodpod user..."
-    sudo dseditgroup -o edit -a clodpod -t user admin
-    echo "clodpod ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/clodpod >/dev/null
+    debug "Enabling passwordless sudo for admin..."
+    echo "admin ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/clodpod >/dev/null
     sudo chmod 440 /etc/sudoers.d/clodpod
 else
-    debug "Disabling sudo access for clodpod user..."
-    sudo dseditgroup -o edit -d clodpod -t user admin || true
+    debug "Passwordless sudo will be removed after provisioning..."
     sudo rm -f /etc/sudoers.d/clodpod
 fi
+# NOTE: Do NOT remove OCI NOPASSWD here — provisioning steps after
+# install.sh need non-interactive sudo. Removal deferred to configure.sh.
 
-# Configure login and password
-if [[ -n "$CLODPOD_PASSWORD" ]]; then
-    sudo dscl . -create /Users/clodpod IsHidden 0
-else
-    sudo dscl . -create /Users/clodpod IsHidden 1
-    CLODPOD_PASSWORD=$(openssl rand -base64 32)
-fi
-sudo dscl . -passwd /Users/clodpod "$CLODPOD_PASSWORD"
-
-# Now add to the SSH access group (required for SSH login)
-# do not use sudo dscl; it creates duplicate entries when run more than once
-sudo dseditgroup -o edit -a clodpod -t user com.apple.access_ssh
+# Ensure admin is in SSH access group
+sudo dseditgroup -o edit -a admin -t user com.apple.access_ssh
 
 # Force opendirectoryd to flush records to disk.
 # In Tart VMs, opendirectoryd holds records in memory and only writes stubs
