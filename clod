@@ -41,6 +41,8 @@ source "$WORKSPACE/lib/build.sh"
 validate_platform
 validate_config
 init_config
+install_tools
+init_db
 
 
 # Intercept commands that need their own option parsing before the global loop.
