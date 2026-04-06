@@ -33,15 +33,15 @@ abort () {
 # Create keychain to avoid error dialog
 # error message: "a keychain cannot be found to store ..."
 #
-# This occurs when connecting using "sudo --user=clodpod ..."
-# but not when using "ssh clodpod@..."
+# This occurs when connecting using "sudo --user=admin ..."
+# but not when using "ssh admin@..."
 #
 # TODO: I guess the sv script could call this configure script directly
 # with the password the first time instead of it being called from .zshrc
 ###############################################################################
 # Explicitly specify the path to avoid confusion with the host user;
 # - security dump-keychain                 => host user
-# - security dump-keychain $LOGIN_KEYCHAIN => clodpod user
+# - security dump-keychain $LOGIN_KEYCHAIN => admin user
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 if [[ ! -f "$LOGIN_KEYCHAIN" ]]; then
     debug "Creating keychain without password..."
@@ -50,13 +50,13 @@ fi
 
 # Unlock the keychain to avoid password dialogs
 debug "Unlocking keychain..."
-security unlock-keychain -p '' "$LOGIN_KEYCHAIN"
+security unlock-keychain -p '' "$LOGIN_KEYCHAIN" 2>/dev/null || true
 
 
 ###############################################################################
 # Xcode
 ###############################################################################
-# It's really useful to be able to run XCode inside clodpod, especially with
+# It's really useful to be able to run XCode inside the VM, especially with
 # worktrees to allow multiple agents to work on the code at the same time.
 #
 # However, the default configuration for Xcode stores build files (e.g. object

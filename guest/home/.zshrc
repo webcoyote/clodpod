@@ -77,9 +77,9 @@ export PATH
 # so we can use the simpler/easier/better homebrew ln tool
 LN="$(brew --prefix)/opt/coreutils/libexec/gnubin/ln"
 if [[ -x "$LN" ]]; then
-    mkdir -p "/Users/clodpod/projects"
+    mkdir -p "$HOME/projects"
     fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | \
-        xargs -0 "$LN" -sf --target "/Users/clodpod/projects"
+        xargs -0 "$LN" -sf --target "$HOME/projects"
 fi
 
 
