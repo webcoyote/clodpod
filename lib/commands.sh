@@ -2,6 +2,20 @@
 # shellcheck disable=SC2154 # globals set by config.sh and other modules
 # UI commands: list, help, version, status, OCI provenance
 
+list_bases() {
+    local result
+    result="$(base_list)"
+    [[ -n "$result" ]] || return 1
+
+    echo "BASES"
+    printf "%-20s %-15s %s\n" "NAME" "OCI SOURCE" "CREATED"
+
+    local name _vm_name oci_source created_at
+    while IFS='|' read -r name _vm_name oci_source created_at; do
+        printf "%-20s %-15s %s\n" "$name" "$oci_source" "$created_at"
+    done <<< "$result"
+}
+
 list_all() {
     local budget_mb
     budget_mb="$(get_memory_budget_mb)"
@@ -13,6 +27,10 @@ list_all() {
     local per_vm_mb=$((budget_mb / vm_count))
     echo "Memory budget: ${budget_mb} MB (of ${host_ram_mb} MB), ${vm_count} VM(s) x ${per_vm_mb} MB"
     echo ""
+
+    if list_bases; then
+        echo ""
+    fi
 
     if vm_list; then
         echo ""

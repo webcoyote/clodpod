@@ -98,19 +98,20 @@ vm_sync_authorized_key() {
 vm_list() {
     local result
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
-SELECT name, vm_name, ram_mb FROM instances ORDER BY created_at DESC, name ASC;
+SELECT name, vm_name, ram_mb, COALESCE(base_name, '-') FROM instances ORDER BY created_at DESC, name ASC;
 EOF
 )
 
     [[ -n "$result" ]] || return 1
 
     echo "INSTANCES"
-    printf "%-20s %-10s %-12s %-15s %s\n" "NAME" "RAM (MB)" "STATE" "IP" "DIRS"
+    printf "%-20s %-10s %-10s %-12s %-15s %s\n" "NAME" "BASE" "RAM (MB)" "STATE" "IP" "DIRS"
 
     local instance_name
     local vm_name
     local stored_ram
-    while IFS='|' read -r instance_name vm_name stored_ram; do
+    local base_name
+    while IFS='|' read -r instance_name vm_name stored_ram base_name; do
         local state
         local ipaddr="-"
         local ram_display
@@ -149,7 +150,7 @@ EOF
         fi
         [[ -n "$dirs" ]] || dirs="-"
 
-        printf "%-20s %-10s %-12s %-15s %s\n" "$instance_name" "$ram_display" "$state" "$ipaddr" "$dirs"
+        printf "%-20s %-10s %-10s %-12s %-15s %s\n" "$instance_name" "$base_name" "$ram_display" "$state" "$ipaddr" "$dirs"
     done <<< "$result"
 }
 
@@ -495,8 +496,8 @@ vm_create() {
         ram_sql="$create_ram_mb"
     fi
     sql="BEGIN IMMEDIATE;
-INSERT INTO instances (name, vm_name, ram_mb, created_at)
-VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, datetime('now'));"
+INSERT INTO instances (name, vm_name, ram_mb, base_name, created_at)
+VALUES ('$(sql_escape "$instance_name")', '$(sql_escape "$final_vm_name")', $ram_sql, 'default', datetime('now'));"
 
     i=0
     while [[ "$i" -lt "${#dir_names[@]}" ]]; do

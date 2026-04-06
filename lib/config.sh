@@ -90,4 +90,13 @@ migrate_vm_names() {
             tart rename "$old" "$new"
         fi
     fi
+
+    # Register existing base in DB if not tracked yet
+    if tart list --quiet 2>/dev/null | grep -q "^${BASE_VM_NAME}$"; then
+        if ! base_exists "default"; then
+            local oci_source="${MACOS_VERSION}-${MACOS_FLAVOR}"
+            base_register "default" "$BASE_VM_NAME" "$oci_source"
+            debug "Registered existing base in database"
+        fi
+    fi
 }

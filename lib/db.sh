@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS instance_dirs (
     is_primary INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (instance_name, dir_name)
 );
+CREATE TABLE IF NOT EXISTS bases (
+    name TEXT PRIMARY KEY,
+    vm_name TEXT UNIQUE NOT NULL,
+    oci_source TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
 EOF
 
     # Migration: add ram_mb column to existing instances tables
@@ -55,6 +61,13 @@ EOF
     has_ram_mb=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ram_mb') || true
     if [[ "$has_ram_mb" -eq 0 ]]; then
         sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ram_mb INTEGER;"
+    fi
+
+    # Migration: add base_name column to instances table
+    local has_base_name
+    has_base_name=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'base_name') || true
+    if [[ "$has_base_name" -eq 0 ]]; then
+        sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN base_name TEXT;"
     fi
 }
 
@@ -128,5 +141,38 @@ set_setting() {
     sqlite3 "$DB_FILE" <<EOF
 INSERT OR REPLACE INTO settings (key, value, updated_at)
 VALUES ('$(sql_escape "$key")', '$(sql_escape "$value")', datetime('now'));
+EOF
+}
+
+base_exists() {
+    local name="$1"
+    local count
+    count=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM bases WHERE name = '$(sql_escape "$name")';" 2>/dev/null || echo 0)
+    [[ "${count:-0}" -gt 0 ]]
+}
+
+base_register() {
+    local name="$1"
+    local vm_name="$2"
+    local oci_source="$3"
+    sqlite3 "$DB_FILE" <<EOF
+INSERT OR REPLACE INTO bases (name, vm_name, oci_source, created_at)
+VALUES ('$(sql_escape "$name")', '$(sql_escape "$vm_name")', '$(sql_escape "$oci_source")', datetime('now'));
+EOF
+}
+
+base_remove() {
+    local name="$1"
+    sqlite3 "$DB_FILE" "DELETE FROM bases WHERE name = '$(sql_escape "$name")';"
+}
+
+base_get_vm_name() {
+    local name="$1"
+    sqlite3 "$DB_FILE" "SELECT vm_name FROM bases WHERE name = '$(sql_escape "$name")' LIMIT 1;"
+}
+
+base_list() {
+    sqlite3 -separator '|' "$DB_FILE" <<EOF
+SELECT name, vm_name, oci_source, created_at FROM bases ORDER BY created_at DESC;
 EOF
 }

@@ -96,6 +96,7 @@ build_base_vm() {
     tart rename "$TMP_VM_NAME" "$BASE_VM_NAME"
     set_setting "allow_sudo" "$ALLOW_SUDO"
     set_setting "oci_base_image" "$MACOS_IMAGE"
+    base_register "default" "$BASE_VM_NAME" "${MACOS_VERSION}-${MACOS_FLAVOR}"
 
     # New base built successfully — remove old base
     if [[ -n "$OLD_BASE_VM_NAME" ]]; then
