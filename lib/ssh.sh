@@ -26,9 +26,6 @@ sync_ssh_key_to_all_instances() {
     instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0), COALESCE(ssh_user, 'clodpod') FROM instances;" 2>/dev/null)" || return 0
     [[ -n "$instance_rows" ]] || return 0
 
-    local pub_key
-    pub_key="$(cat "$SSH_KEYFILE_PUB")"
-
     # Also sync to legacy clodpod-xcode if it exists
     if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
         local dst_ssh_user

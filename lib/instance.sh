@@ -89,7 +89,7 @@ vm_sync_authorized_key() {
     # shellcheck disable=SC2016 #  Expressions don't expand in single quotes, use double quotes for that.
     if [[ "$ssh_user" == "admin" ]]; then
         # No sudo needed — tart exec runs as admin, admin owns .ssh
-        tart exec -it "$vm_name" \
+        tart exec "$vm_name" \
             "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
             bash -lc '
                 install -d -m 700 /Users/admin/.ssh
@@ -98,7 +98,7 @@ vm_sync_authorized_key() {
             '
     else
         # Legacy: clodpod user needs sudo
-        tart exec -it "$vm_name" \
+        tart exec "$vm_name" \
             "/usr/bin/env" "PUB_KEY_B64=$pub_key_b64" \
             bash -lc '
                 sudo install -d -m 700 -o clodpod -g clodpod /Users/clodpod/.ssh
