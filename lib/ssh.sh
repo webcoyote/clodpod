@@ -50,7 +50,7 @@ sync_ssh_key_to_all_instances() {
             fi
         fi
         debug "Syncing SSH key to $vm ($ssh_user)..."
-        vm_sync_authorized_key "$vm" "$ssh_user"
+        vm_sync_authorized_key "$vm" "$ssh_user" 2>/dev/null || warn "SSH key sync failed for $vm — skipping"
         if [[ "$was_stopped" == "true" ]]; then
             tart stop "$vm" 2>/dev/null || true
         fi
