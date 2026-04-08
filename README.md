@@ -61,17 +61,11 @@ Usage:
     # Start virtual machine (useful for utilizing Virtual Machine GUI apps)
     clod start
 
-    # Enable passwordless sudo for clodpod user
-    clod --allow-sudo shell
+    # Enable passwordless sudo in VM
+    ALLOW_SUDO=true clod build-base
 
-    # Disable passwordless sudo for clodpod user (default)
-    clod --no-allow-sudo shell
-
-    # Set a custom login password for the clodpod account
-    # NOTE: add a space to the beginning of the command
-    # to prevent its inclusion in your shell history to
-    # avoid leaking your passwords there :)
-     CLODPOD_PASSWORD='your-password' clod shell
+    # Disable passwordless sudo in VM (default)
+    ALLOW_SUDO=false clod build-base
 
     # Stop all clodpod virtual machines
     clod stop
