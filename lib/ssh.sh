@@ -23,8 +23,7 @@ ensure_ssh_key() {
 # Temporarily starts stopped VMs, pushes key, stops them again.
 sync_ssh_key_to_all_instances() {
     local instance_rows
-    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0), COALESCE(ssh_user, 'clodpod') FROM instances;" 2>/dev/null)" || return 0
-    [[ -n "$instance_rows" ]] || return 0
+    instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0), COALESCE(ssh_user, 'clodpod') FROM instances;" 2>/dev/null)" || true
 
     # Also sync to legacy clodpod-xcode if it exists
     if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
@@ -33,6 +32,8 @@ sync_ssh_key_to_all_instances() {
         instance_rows="${instance_rows:+$instance_rows
 }${DST_VM_NAME}|0|${dst_ssh_user}"
     fi
+
+    [[ -n "$instance_rows" ]] || return 0
 
     local vm ram_mb ssh_user
     while IFS='|' read -r vm ram_mb ssh_user; do
