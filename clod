@@ -97,6 +97,22 @@ DST_VM_NAME="clodpod-xcode"
 DATA_DIR="$HOME/.local/share/clodpod"
 OLD_DB_FILE="$WORKSPACE/.clodpod.sqlite"
 
+# Resolve database location: new XDG path, legacy install path, or fresh install
+resolve_db_file() {
+    if [[ -f "$DATA_DIR/clodpod.sqlite" ]]; then
+        printf '%s' "$DATA_DIR/clodpod.sqlite"
+    elif [[ -f "$OLD_DB_FILE" ]]; then
+        info "Database found at $OLD_DB_FILE"
+        info "Run 'clod migrate' to move it to $DATA_DIR/"
+        info "If you have multiple clodpod checkouts, migrate from only one."
+        printf '%s' "$OLD_DB_FILE"
+    else
+        mkdir -p "$DATA_DIR"
+        printf '%s' "$DATA_DIR/clodpod.sqlite"
+    fi
+}
+DB_FILE="$(resolve_db_file)"
+
 SSH_DIR="$HOME/.ssh"
 SSH_KEYFILE_PRIV="$SSH_DIR/id_ed25519_clodpod"
 SSH_KEYFILE_PUB="$SSH_KEYFILE_PRIV.pub"
@@ -254,6 +270,21 @@ refresh_guest_home() {
     mkdir -m 700 -p "$(dirname "$guest_known_hosts")"
     ssh-keyscan github.com > "$guest_known_hosts"
     chmod 600 "$guest_known_hosts"
+
+    # Completion marker — written LAST so an interrupted refresh leaves no marker
+    touch "$guest_dir/.populated"
+}
+
+# Idempotent guard: refresh guest home only if it has not been fully populated.
+# Uses a completion marker that refresh_guest_home writes LAST, so partial or
+# interrupted refreshes are detected as incomplete and re-run.
+# Caller MUST have run ensure_ssh_key first (refresh_guest_home reads
+# $SSH_KEYFILE_PUB).
+ensure_guest_home() {
+    if [[ ! -f "$DATA_DIR/guest/.populated" ]]; then
+        info "Guest home incomplete at $DATA_DIR/guest, populating..."
+        refresh_guest_home
+    fi
 }
 
 vm_name_to_vm_name() {
@@ -646,23 +677,8 @@ migrate_db() {
     DB_FILE="$DATA_DIR/clodpod.sqlite"
     info "Migrated database to $DATA_DIR/clodpod.sqlite"
 
+    ensure_ssh_key
     refresh_guest_home
-}
-
-# Resolve database location: new XDG path, legacy install path, or fresh install
-resolve_db_file() {
-    if [[ -f "$DATA_DIR/clodpod.sqlite" ]]; then
-        printf '%s' "$DATA_DIR/clodpod.sqlite"
-    elif [[ -f "$OLD_DB_FILE" ]]; then
-        info "Database found at $OLD_DB_FILE"
-        info "Run 'clod migrate' to move it to $DATA_DIR/"
-        info "If you have multiple clodpod checkouts, migrate from only one."
-        refresh_guest_home
-        printf '%s' "$OLD_DB_FILE"
-    else
-        mkdir -p "$DATA_DIR"
-        printf '%s' "$DATA_DIR/clodpod.sqlite"
-    fi
 }
 
 init_db() {
@@ -1716,7 +1732,6 @@ show_version() {
 # Setup
 ###############################################################################
 install_tools
-DB_FILE="$(resolve_db_file)"
 init_db
 
 
@@ -2138,6 +2153,7 @@ check_oci_provenance
 # Create passwordless SSH key with permission to remotely login to guest
 ###############################################################################
 ensure_ssh_key
+ensure_guest_home
 
 if [[ "${REBUILD_OCI:-}" != "" ]]; then
     REBUILD_BASE=true
