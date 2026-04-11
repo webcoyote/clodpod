@@ -18,6 +18,7 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TMP_DIR=""
 TEST_WORKSPACE=""
+TEST_HOME=""
 MOCK_BIN=""
 
 pass() {
@@ -68,18 +69,54 @@ setup_workspace() {
 
     TMP_DIR="$(mktemp -d)"
     TEST_WORKSPACE="$TMP_DIR/clodpod"
+    TEST_HOME="$TMP_DIR/home"
     MOCK_BIN="$TMP_DIR/bin"
 
-    mkdir -p "$TEST_WORKSPACE" "$MOCK_BIN"
+    mkdir -p "$TEST_WORKSPACE" "$TEST_HOME/.ssh" "$MOCK_BIN"
     cp "$CLOD_BASE" "$TEST_WORKSPACE/clod"
     chmod +x "$TEST_WORKSPACE/clod"
 
+    # Copy guest source so refresh_guest_home has a source tree
+    if [[ -d "$SCRIPT_DIR/../guest" ]]; then
+        cp -R "$SCRIPT_DIR/../guest" "$TEST_WORKSPACE/guest"
+    fi
+
     # Prevent install_tools from trying to install dependencies.
     create_stub brew
-    create_stub tart
-    create_stub jq
     create_stub netcat
     create_stub rush
+
+    # sysctl stub: return a plausible host RAM value
+    cat > "$MOCK_BIN/sysctl" <<'STUB'
+#!/bin/bash
+case "$2" in
+    hw.memsize) echo "17179869184" ;;
+    hw.ncpu)    echo "8" ;;
+    *)          echo "0" ;;
+esac
+STUB
+    chmod +x "$MOCK_BIN/sysctl"
+
+    # tart stub: returns JSON for --format json, exit 0 otherwise
+    cat > "$MOCK_BIN/tart" <<'STUB'
+#!/bin/bash
+for arg in "$@"; do
+    [[ "$arg" == "json" ]] && { echo "[]"; exit 0; }
+done
+exit 0
+STUB
+    chmod +x "$MOCK_BIN/tart"
+
+    # jq stub: only for commands that don't need real jq parsing
+    create_stub jq
+
+    # ssh-keyscan stub: benign fake output
+    cat > "$MOCK_BIN/ssh-keyscan" <<'STUB'
+#!/bin/bash
+echo "github.com ssh-rsa AAAAFAKE"
+exit 0
+STUB
+    chmod +x "$MOCK_BIN/ssh-keyscan"
 }
 
 cleanup() {
@@ -92,9 +129,34 @@ trap cleanup EXIT
 run_clod() {
     (
         cd "$TEST_WORKSPACE"
-        PATH="$MOCK_BIN:$PATH" VERBOSE=0 /bin/bash "$TEST_WORKSPACE/clod" "$@"
+        HOME="$TEST_HOME" PATH="$MOCK_BIN:$PATH" VERBOSE=0 /bin/bash "$TEST_WORKSPACE/clod" "$@"
     )
 }
+
+# Reset workspace and home for test isolation
+reset_test_env() {
+    rm -rf "$TEST_WORKSPACE" "$TEST_HOME"
+    mkdir -p "$TEST_WORKSPACE" "$TEST_HOME/.ssh" "$MOCK_BIN"
+    cp "$CLOD_BASE" "$TEST_WORKSPACE/clod"
+    chmod +x "$TEST_WORKSPACE/clod"
+    if [[ -d "$SCRIPT_DIR/../guest" ]]; then
+        cp -R "$SCRIPT_DIR/../guest" "$TEST_WORKSPACE/guest"
+    fi
+}
+
+# Helper: create a legacy DB with the full init_db schema
+create_legacy_db() {
+    sqlite3 "$TEST_WORKSPACE/.clodpod.sqlite" <<'SQL'
+CREATE TABLE IF NOT EXISTS projects (path TEXT UNIQUE NOT NULL, name TEXT UNIQUE NOT NULL, date_added TEXT, active INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS instances (name TEXT PRIMARY KEY, vm_name TEXT UNIQUE NOT NULL, ram_mb INTEGER, created_at TEXT);
+CREATE TABLE IF NOT EXISTS instance_dirs (instance_name TEXT NOT NULL, dir_name TEXT NOT NULL, dir_path TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (instance_name, dir_name));
+SQL
+}
+
+###############################################################################
+# Original tests
+###############################################################################
 
 test_version() {
     local output status
@@ -186,6 +248,117 @@ test_remove_missing_project_fails() {
     [[ "$status" -ne 0 && "$output" == *"Error: Project not found"* ]]
 }
 
+###############################################################################
+# Guest-home guard tests
+###############################################################################
+
+# clod ls in legacy-DB state must not trigger network or guest-home mutation
+test_ls_legacy_db_no_side_effects() {
+    reset_test_env
+    create_legacy_db
+
+    # Replace ssh-keyscan with a failing stub to detect unwanted calls
+    cat > "$MOCK_BIN/ssh-keyscan" <<'STUB'
+#!/bin/bash
+echo "TEST-FAIL: ssh-keyscan called" >&2; exit 92
+STUB
+    chmod +x "$MOCK_BIN/ssh-keyscan"
+
+    local output status
+    set +e
+    output="$(run_clod ls 2>&1)"
+    status=$?
+    set -e
+
+    # Restore benign stub
+    cat > "$MOCK_BIN/ssh-keyscan" <<'STUB'
+#!/bin/bash
+echo "github.com ssh-rsa AAAAFAKE"; exit 0
+STUB
+    chmod +x "$MOCK_BIN/ssh-keyscan"
+
+    [[ "$status" -eq 0 ]] || return 1
+    [[ ! -d "$TEST_HOME/.local/share/clodpod/guest" ]] || return 1
+    [[ "$output" == *"Run 'clod migrate'"* ]] || return 1
+}
+
+# clod migrate must create SSH key and populate guest on a no-key machine
+test_migrate_creates_guest() {
+    reset_test_env
+    create_legacy_db
+
+    local output status
+    set +e
+    output="$(run_clod migrate 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -eq 0 ]] || return 1
+    [[ -f "$TEST_HOME/.local/share/clodpod/clodpod.sqlite" ]] || return 1
+    [[ ! -f "$TEST_WORKSPACE/.clodpod.sqlite" ]] || return 1
+    [[ -f "$TEST_HOME/.ssh/id_ed25519_clodpod.pub" ]] || return 1
+    [[ -f "$TEST_HOME/.local/share/clodpod/guest/.populated" ]] || return 1
+}
+
+# clod start with missing guest heals it via ensure_guest_home guard
+test_start_heals_guest() {
+    reset_test_env
+
+    # Need real jq for get_vm_state JSON parsing
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "    (skipped: jq not found)" >&2
+        return 0
+    fi
+
+    # Pre-seed SSH key so ensure_ssh_key doesn't set REBUILD_DST
+    ssh-keygen -t ed25519 -N "" -f "$TEST_HOME/.ssh/id_ed25519_clodpod" -q
+
+    # Pre-create XDG DB (no legacy DB — skip the legacy branch entirely)
+    mkdir -p "$TEST_HOME/.local/share/clodpod"
+    sqlite3 "$TEST_HOME/.local/share/clodpod/clodpod.sqlite" <<'SQL'
+CREATE TABLE IF NOT EXISTS projects (path TEXT UNIQUE NOT NULL, name TEXT UNIQUE NOT NULL, date_added TEXT, active INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS instances (name TEXT PRIMARY KEY, vm_name TEXT UNIQUE NOT NULL, ram_mb INTEGER, created_at TEXT);
+CREATE TABLE IF NOT EXISTS instance_dirs (instance_name TEXT NOT NULL, dir_name TEXT NOT NULL, dir_path TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (instance_name, dir_name));
+SQL
+
+    # tart stub that reports both VMs exist (suppresses REBUILD_DST)
+    # and uses real jq via --format json
+    cat > "$MOCK_BIN/tart" <<'STUB'
+#!/bin/bash
+for arg in "$@"; do
+    if [[ "$arg" == "json" ]]; then
+        cat <<'JSON'
+[{"Source":"local","Name":"clodpod-xcode-base","State":"stopped"},{"Source":"local","Name":"clodpod-xcode","State":"stopped"}]
+JSON
+        exit 0
+    fi
+done
+exit 0
+STUB
+    chmod +x "$MOCK_BIN/tart"
+    # Remove jq stub so real jq is used
+    rm -f "$MOCK_BIN/jq"
+
+    local output status
+    set +e
+    output="$(run_clod start 2>&1)"
+    status=$?
+    set -e
+
+    # Restore default stubs for subsequent tests
+    create_stub tart
+    create_stub jq
+
+    [[ -f "$TEST_HOME/.local/share/clodpod/guest/.populated" ]] || return 1
+    [[ -f "$TEST_HOME/.local/share/clodpod/guest/home/.ssh/authorized_keys" ]] || return 1
+}
+
+
+###############################################################################
+# Run tests
+###############################################################################
+
 setup_workspace
 
 if [[ "$VERBOSE" -ne 0 ]]; then
@@ -200,6 +373,16 @@ run_test "add rejects missing directory" test_add_missing_directory_fails
 run_test "remove rejects missing project" test_remove_missing_project_fails
 
 if [[ "$VERBOSE" -ne 0 ]]; then
+    echo ""
+    echo "=== guest-home guard tests ==="
+fi
+
+run_test "ls with legacy DB has no side effects" test_ls_legacy_db_no_side_effects
+run_test "migrate creates SSH key and guest" test_migrate_creates_guest
+run_test "start heals missing guest via guard" test_start_heals_guest
+
+if [[ "$VERBOSE" -ne 0 ]]; then
+    echo ""
     echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
     echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
 fi
