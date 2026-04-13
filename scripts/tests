@@ -322,23 +322,41 @@ CREATE TABLE IF NOT EXISTS instances (name TEXT PRIMARY KEY, vm_name TEXT UNIQUE
 CREATE TABLE IF NOT EXISTS instance_dirs (instance_name TEXT NOT NULL, dir_name TEXT NOT NULL, dir_path TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (instance_name, dir_name));
 SQL
 
-    # tart stub that reports both VMs exist (suppresses REBUILD_DST)
-    # and uses real jq via --format json
-    cat > "$MOCK_BIN/tart" <<'STUB'
+    # tart stub that reports both VMs exist and transitions to "running"
+    # after tart run is called, uses real jq via --format json
+    local tart_state_file="$TMP_DIR/.tart_state"
+    echo "stopped" > "$tart_state_file"
+    cat > "$MOCK_BIN/tart" <<STUB
 #!/bin/bash
-for arg in "$@"; do
-    if [[ "$arg" == "json" ]]; then
-        cat <<'JSON'
-[{"Source":"local","Name":"clodpod-xcode-base","State":"stopped"},{"Source":"local","Name":"clodpod-xcode","State":"stopped"}]
-JSON
+for arg in "\$@"; do
+    if [[ "\$arg" == "json" ]]; then
+        state=\$(cat "$tart_state_file")
+        cat <<ENDJSON
+[{"Source":"local","Name":"clodpod-xcode-base","State":"\$state"},{"Source":"local","Name":"clodpod-xcode","State":"\$state"}]
+ENDJSON
         exit 0
     fi
 done
+# "tart run" transitions VMs to running
+if [[ "\${1:-}" == "run" ]]; then
+    echo "running" > "$tart_state_file"
+fi
 exit 0
 STUB
     chmod +x "$MOCK_BIN/tart"
     # Remove jq stub so real jq is used
     rm -f "$MOCK_BIN/jq"
+    # Stub out sudo (DHCP lease) and openssl (tmp VM name)
+    cat > "$MOCK_BIN/sudo" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+    chmod +x "$MOCK_BIN/sudo"
+    cat > "$MOCK_BIN/openssl" <<'STUB'
+#!/bin/bash
+echo "deadbeef"
+STUB
+    chmod +x "$MOCK_BIN/openssl"
 
     local output status
     set +e
@@ -349,6 +367,7 @@ STUB
     # Restore default stubs for subsequent tests
     create_stub tart
     create_stub jq
+    rm -f "$MOCK_BIN/sudo" "$MOCK_BIN/openssl" "$tart_state_file"
 
     [[ -f "$TEST_HOME/.local/share/clodpod/guest/.populated" ]] || return 1
     [[ -f "$TEST_HOME/.local/share/clodpod/guest/home/.ssh/authorized_keys" ]] || return 1
