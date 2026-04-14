@@ -16,6 +16,9 @@ migrate_db() {
     mv "$OLD_DB_FILE" "$DATA_DIR/clodpod.sqlite"
     DB_FILE="$DATA_DIR/clodpod.sqlite"
     info "Migrated database to $DATA_DIR/clodpod.sqlite"
+
+    ensure_ssh_key
+    refresh_guest_home
 }
 
 init_db() {

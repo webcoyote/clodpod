@@ -22,11 +22,6 @@ abort () {
     exit 1
 }
 
-# heredoc MESSAGE << EOF
-#    your favorite text here
-# EOF
-heredoc(){ IFS=$'\n' read -r -d '' "${1}" || true; }
-
 resolve_physical_path() {
     local input="${1:-}"
     local path
