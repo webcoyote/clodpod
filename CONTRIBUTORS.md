@@ -21,8 +21,9 @@ Please ensure your contributions align with the project's goals of providing a r
 
 Special thanks to all who have provided feedback, bug reports, and suggestions for improving ClodPod:
 
-- Taytay
-- statico
-- burakkurkcu
-- tallpsmith
-- vre
+- [burakkurkcu](https://github.com/burakkurkcu)
+- [echthesia](https://github.com/echthesia)
+- [statico](https://github.com/statico)
+- [tallpsmith](https://github.com/tallpsmith)
+- [Taytay](https://github.com/Taytay)
+- [vre](https://github.com/vre)
