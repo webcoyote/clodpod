@@ -62,6 +62,7 @@ ssh_into_vm() {
         -tt \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
+        -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
         "clodpod@$ipaddr" \
         /usr/bin/env \
