@@ -132,6 +132,7 @@ build_base_vm() {
     ssh -q -tt \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
+        -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
         "clodpod@$ipaddr" \
         /usr/bin/env "TERM=xterm-256color" zsh --login || true
