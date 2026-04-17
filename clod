@@ -1362,11 +1362,21 @@ ssh_into_vm() {
     local initial_dir="${3:-}"
     local ipaddr
     local command_args_b64
+    local -a env_args
 
     ipaddr="$(get_vm_ip_or_abort "$vm_name")"
     debug "Connect to $vm_name (ssh clodpod@$ipaddr)"
 
     command_args_b64="$(encode_command_args)"
+
+    env_args=(
+        "TERM=xterm-256color"
+        "PROJECT=$project_name"
+        "INITIAL_DIR=$initial_dir"
+        "COMMAND=${COMMAND:-}"
+        "COMMAND_ARGS_B64=$command_args_b64"
+    )
+    [[ -n "${COLORTERM:-}" ]] && env_args+=("COLORTERM=$COLORTERM")
 
     exec ssh \
         -q \
@@ -1377,11 +1387,7 @@ ssh_into_vm() {
         -i "$SSH_KEYFILE_PRIV" \
         "clodpod@$ipaddr" \
         /usr/bin/env \
-            "TERM=xterm-256color" \
-            "PROJECT=$project_name" \
-            "INITIAL_DIR=$initial_dir" \
-            "COMMAND=${COMMAND:-}" \
-            "COMMAND_ARGS_B64=$command_args_b64" \
+            "${env_args[@]}" \
             zsh --login || true
 }
 
@@ -2374,6 +2380,15 @@ if initial_dir=$(get_relative_project_directory "$PROJECT_NAME"); then
     debug "initial directory: ${INITIAL_DIR:-}"
 fi
 
+ENV_ARGS=(
+    "TERM=xterm-256color"
+    "PROJECT=$PROJECT_NAME"
+    "INITIAL_DIR=$INITIAL_DIR"
+    "COMMAND=${COMMAND:-}"
+    "COMMAND_ARGS_B64=$COMMAND_ARGS_B64"
+)
+[[ -n "${COLORTERM:-}" ]] && ENV_ARGS+=("COLORTERM=$COLORTERM")
+
 exec ssh \
     -q \
     -tt \
@@ -2383,9 +2398,5 @@ exec ssh \
     -i "$SSH_KEYFILE_PRIV" \
     "clodpod@$IPADDR" \
     /usr/bin/env \
-        "TERM=xterm-256color" \
-        "PROJECT=$PROJECT_NAME" \
-        "INITIAL_DIR=$INITIAL_DIR" \
-        "COMMAND=${COMMAND:-}" \
-        "COMMAND_ARGS_B64=$COMMAND_ARGS_B64" \
+        "${ENV_ARGS[@]}" \
         zsh --login || true
