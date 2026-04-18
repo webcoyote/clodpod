@@ -57,42 +57,48 @@ for arg in "$@"; do
             continue
             ;;
         build-base)
-            while [[ "${1:-}" != "$arg" ]]; do
-                shift
-            done
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
+            for _a in "$@"; do
+                case "$_a" in --) break ;; -h|--help) show_help_build_base; exit 0 ;; esac
+            done
             cmd_build_base "$@"
             exit 0
             ;;
         create|cr)
-            while [[ "${1:-}" != "$arg" ]]; do
-                shift
-            done
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
+            for _a in "$@"; do
+                case "$_a" in --) break ;; -h|--help) show_help_create; exit 0 ;; esac
+            done
             vm_create "$@"
             exit 0
             ;;
         destroy)
-            while [[ "${1:-}" != "$arg" ]]; do
-                shift
-            done
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
+            for _a in "$@"; do
+                case "$_a" in --) break ;; -h|--help) show_help_destroy; exit 0 ;; esac
+            done
             vm_destroy "$@"
             exit 0
             ;;
         set)
-            while [[ "${1:-}" != "$arg" ]]; do
-                shift
-            done
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
+            for _a in "$@"; do
+                case "$_a" in --) break ;; -h|--help) show_help_set; exit 0 ;; esac
+            done
             vm_set "$@"
             exit 0
             ;;
         shell|sh|s)
-            while [[ "${1:-}" != "$arg" ]]; do
-                shift
-            done
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
+            # Check --help before shell's own parser (stop at --)
+            for _a in "$@"; do
+                case "$_a" in --) break ;; -h|--help) show_help_shell; exit 0 ;; esac
+            done
             # Parse shell args: [--ram SIZE] [target] [-- cmd...]
             COMMAND_ARGS=()
             _shell_ram=""
@@ -286,6 +292,10 @@ case "${1:-}" in
         ;;
     migrate)
         migrate_db
+        exit 0
+        ;;
+    help|h)
+        dispatch_help "${2:-}"
         exit 0
         ;;
     status|st)
