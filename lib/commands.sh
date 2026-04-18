@@ -47,61 +47,203 @@ show_version() {
 }
 
 show_help() {
-    echo "Usage: clod [options] command [args...] [-- command-args...]"
+    cat <<EOF
+clodpod v${VERSION} — macOS VM sandbox for AI agents
+
+Usage: clod [options] <command> [args...] [-- command-args...]
+
+Commands:
+  claude, cl, c     Run Claude Code in VM
+  codex, co         Run OpenAI Codex in VM
+  cursor, cu, ca    Run Cursor Agent in VM
+  gemini, gem, g    Run Google Gemini in VM
+  shell, sh, s      Open shell in VM
+  create, cr        Create a named VM instance
+  destroy           Delete a named VM instance
+  build-base        Build or rebuild a base image
+  start             Start VM without connecting
+  stop              Stop VM(s)
+  set               Change VM settings
+  list, ls, l       List instances, bases, and projects
+  status, st        Show system state
+  add, a            Add a project directory
+  remove, rm        Remove a project
+  migrate           Move database to XDG location
+  help, h           Show help for a command
+
+VM layers (each builds on the previous):
+  Layer 0 (OCI)       Downloaded macOS image, cached locally
+  Layer 1 (base)      OCI + brew + AI tools + service logins
+  Layer 2 (instance)  Base clone + project dirs + your tool installs
+
+Existing instances keep working after a base rebuild, but won't have
+the updated packages. Recreate to pick up changes: clod destroy + create.
+
+Global options:
+  --graphics/--no-graphics      VM display mode (default: graphics)
+  --rebuild-oci                 Re-download OCI image (Layer 0)
+  --rebuild-base                Rebuild base from OCI (Layer 1)
+  --rebuild-dst                 Rebuild legacy VM home (Layer 2)
+  --allow-sudo/--no-allow-sudo  Passwordless sudo in VM
+  -n, --no-select               Skip interactive project selection
+  -v/-vv/-vvv                   Verbosity
+  -h, --help                    Show help
+  --version                     Show version
+
+Run 'clod help <command>' for command-specific help.
+EOF
+}
+
+show_help_command() {
+    local usage="$1" desc="$2"
+    echo "Usage: clod $usage"
     echo ""
-    echo "Options:"
-    echo "  --graphics           Run virtual machine with graphics (default)"
-    echo "  --no-graphics        Run virtual machine without graphics"
-    echo "  --rebuild-oci        Force rebuild of Layer 0 from the OCI image"
-    echo "                        Prunes ALL Tart caches after Layer 0 is created"
-    echo "  --rebuild-base       Force rebuild of the base image from Layer 0 (brew update)"
-    echo "  --rebuild-dst        Force rebuild of the final image (update \$HOME)"
-    echo "  --allow-sudo         Enable passwordless sudo in VM (convenience setting)"
-    echo "  --no-allow-sudo      Disable passwordless sudo in VM (default)"
-    echo "  --ram SIZE           Set RAM for this shell session (e.g. 8G, 8192M). Named VMs only"
-    echo "  -n|--no-select       Disable interactive project selection"
-    echo "  -v, --verbose        Enable verbose output (repeat for more verbosity)"
-    echo "  -vv                  Set verbosity level 2"
-    echo "  -vvv                 Set verbosity level 3"
-    echo "  -h, --help           Show this help message"
-    echo "  --version            Show version information"
-    echo ""
-    echo "Commands:"
-    echo "  cl, claude [PATH] [NAME]  Run Claude Code"
-    echo "  co, codex  [PATH] [NAME]  Run OpenAI Codex"
-    echo "  cu, cursor [PATH] [NAME]  Run Cursor Agent"
-    echo "  g,  gemini [PATH] [NAME]  Run Google Gemini"
-    echo "      build-base [--profile NAME] [--install-script PATH]"
-    echo "                           Build a base image with optional profile and interactive session"
-    echo "  cr, create NAME [--base PROFILE] [--ram SIZE] [--dir name:path ...]"
-    echo "                           Create a named VM from a base image (default: 'default')"
-    echo "  s,  shell  [NAME|PATH] [NAME]"
-    echo "                           Run zsh shell for a named VM or legacy project"
-    echo "  a,  add PATH [NAME]       Add a new project"
-    echo "  rm, remove <identifier>   Remove project by name or path"
-    echo "  ls, list                  List named instances and projects"
-    echo "  st, status                Show sudo, Layer 0/base/dst state, and image provenance"
-    echo "      start                 Start virtual machine"
-    echo "      stop [NAME]           Stop a named VM or all clodpod VMs"
-    echo "      destroy NAME          Delete a named VM"
-    echo "      destroy --all         Delete all named VMs"
-    echo "      set --ram SIZE NAME   Set per-instance RAM (use 'default' to reset)"
-    echo "      set --max-memory SIZE Set workspace memory budget (use 'default' to reset)"
-    echo "      set --vm-count N      Split budget across N VMs (use 'default' to reset to 1)"
-    echo "      migrate               Move database to ~/.local/share/clodpod/"
-    echo ""
-    echo "Examples:"
-    echo "  clod create dev --ram 8G --dir project:/Users/me/src/app"
-    echo "  clod shell dev"
-    echo "  clod shell --ram 6G dev"
-    echo "  clod set --ram 10G dev"
-    echo "  clod set --max-memory 16G"
-    echo "  clod set --vm-count 2"
-    echo "  clod shell /Users/me/src/app"
-    echo "  clod stop dev"
-    echo "  clod destroy --all"
-    echo ""
-    echo "Arguments after -- are passed to the command (claude, codex, cursor, gemini, shell)"
+    echo "$desc"
+}
+
+show_help_create() {
+    cat <<'EOF'
+Usage: clod create <name> [options]
+
+Create a named VM instance by cloning a base image.
+
+Options:
+  --base PROFILE    Base image to clone (default: 'default')
+  --ram SIZE        Fixed RAM for this instance (e.g. 8G, 4096M, 'default' for budget)
+  --dir name:path   Mount host directory into VM (repeatable, first is primary)
+
+Examples:
+  clod create dev --dir project:/Users/me/src/app
+  clod create dev --ram 8G --base custom --dir work:$(pwd)
+  clod create worker --dir repo:$(pwd) --dir data:/Volumes/data
+EOF
+}
+
+show_help_build_base() {
+    cat <<'EOF'
+Usage: clod build-base [options]
+
+Build a base image from OCI source. Installs brew packages, AI tools,
+and opens an interactive SSH session for manual login (Claude, Codex, etc.).
+
+First run downloads the OCI image (~30 GB) — this takes a while.
+Subsequent runs reuse the cached image. Use --rebuild-oci to fetch
+a newer version (e.g. after Xcode or macOS updates from Cirrus Labs).
+
+To update brew packages without re-downloading OCI, just run build-base
+again — it rebuilds from the cached Layer 0.
+
+Options:
+  --profile NAME          Profile name (default: 'default')
+  --install-script PATH   Import custom install script into profile
+
+Environment:
+  ALLOW_SUDO=true         Enable passwordless sudo in the base
+
+Layers:
+  Layer 0 (OCI)      Downloaded image, cached. Refresh: --rebuild-oci
+  Layer 1 (base)     OCI + brew + tools + login. This command builds it.
+  Layer 2 (instance) Base clone + your tools. Created with 'clod create'.
+
+Note: existing instances keep working after base rebuild but won't
+have updated packages. Recreate to pick up changes:
+  clod destroy <name> && clod create <name> --dir ...
+
+Examples:
+  clod build-base
+  clod build-base --profile ml --install-script ./setup-cuda.sh
+  ALLOW_SUDO=true clod build-base
+  clod --rebuild-oci build-base     # fetch latest OCI image
+EOF
+}
+
+show_help_set() {
+    cat <<'EOF'
+Usage: clod set <option> [args]
+
+Change VM and workspace settings.
+
+Options:
+  --ram SIZE NAME       Set fixed RAM for an instance (e.g. 8G, 'default' to reset)
+  --max-memory SIZE     Set workspace memory budget (e.g. 32G, 'default' for 5/8 host RAM)
+  --vm-count N          Split budget across N VMs ('default' to reset to 1)
+
+Examples:
+  clod set --ram 10G dev
+  clod set --max-memory 32G
+  clod set --vm-count 3
+EOF
+}
+
+show_help_shell() {
+    cat <<'EOF'
+Usage: clod shell [NAME] [--ram SIZE] [-- command...]
+
+Open a shell in a named VM instance, or use legacy project-based flow.
+
+Arguments:
+  NAME                  Instance name (omit for auto-select if only one exists)
+  --ram SIZE            Override RAM for this session (e.g. 8G). Named VMs only.
+  -- command...         Run command instead of interactive shell
+
+Examples:
+  clod shell dev
+  clod shell dev --ram 12G
+  clod shell dev -- claude --dangerously-skip-permissions
+  clod shell                    # auto-selects if one instance exists
+EOF
+}
+
+show_help_destroy() {
+    cat <<'EOF'
+Usage: clod destroy <name>
+       clod destroy --all
+
+Delete a named VM instance (stops if running, removes VM and DB records).
+
+Options:
+  --all     Delete all named instances
+
+Examples:
+  clod destroy dev
+  clod destroy --all
+EOF
+}
+
+show_help_stop() {
+    cat <<'EOF'
+Usage: clod stop [NAME]
+
+Stop a named VM, or all clodpod VMs if no name given.
+
+Examples:
+  clod stop dev
+  clod stop
+EOF
+}
+
+# Dispatch per-command help from 'clod help <command>'
+dispatch_help() {
+    case "${1:-}" in
+        create|cr)          show_help_create ;;
+        destroy)            show_help_destroy ;;
+        build-base)         show_help_build_base ;;
+        set)                show_help_set ;;
+        shell|sh|s)         show_help_shell ;;
+        stop)               show_help_stop ;;
+        claude|cl|c)        show_help_command "claude [PATH] [NAME] [-- args...]" "Run Claude Code in a VM. PATH adds a project directory." ;;
+        codex|co)           show_help_command "codex [PATH] [NAME] [-- args...]" "Run OpenAI Codex in a VM." ;;
+        cursor|cu|ca)       show_help_command "cursor [PATH] [NAME] [-- args...]" "Run Cursor Agent in a VM." ;;
+        gemini|gem|g)       show_help_command "gemini [PATH] [NAME] [-- args...]" "Run Google Gemini in a VM." ;;
+        start)              show_help_command "start" "Start the VM without connecting (useful for GUI apps)." ;;
+        add|a)              show_help_command "add PATH [NAME]" "Add a project directory. NAME defaults to directory basename." ;;
+        remove|rm)          show_help_command "remove <name|path>" "Remove a project by name or path." ;;
+        list|ls|l)          show_help_command "list" "List memory budget, bases, instances, and projects." ;;
+        status|st)          show_help_command "status" "Show sudo setting, layer states, and OCI image provenance." ;;
+        migrate)            show_help_command "migrate" "Move database from legacy location to ~/.local/share/clodpod/" ;;
+        help|h)             show_help ;;
+        *)                  show_help ;;
+    esac
 }
 
 show_status() {
