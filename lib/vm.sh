@@ -202,7 +202,7 @@ get_vm_state () {
     local vm_name="$1"
     local vm_source="${2:-local}"
     tart list --source "$vm_source" --format json \
-        | jq -r ".[] | select(.Name == \"$vm_name\") | .State" 2>/dev/null \
+        | jq -r --arg name "$vm_name" '.[] | select(.Name == $name) | .State' 2>/dev/null \
         || echo ""
 }
 
