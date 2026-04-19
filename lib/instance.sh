@@ -40,10 +40,15 @@ get_vm_ip_or_abort() {
         error "$(get_local_network_error "$vm_name")"
         read -n 1 -s -r -p "Press any key to open System Settings"
         open "/System/Library/PreferencePanes/Security.prefPane"
+        abort "Cannot connect to $vm_name at $ipaddr:22"
     fi
 
     echo "$ipaddr"
 }
+
+# Escape a value for safe transmission as an SSH env var.
+# Wraps in single quotes, escaping any embedded single quotes.
+ssh_quote_env() { printf "%s='%s'" "$1" "${2//\'/\'\\\'\'}"; }
 
 ssh_into_vm() {
     local vm_name="$1"
@@ -67,9 +72,9 @@ ssh_into_vm() {
         "clodpod@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
-            "PROJECT=$project_name" \
-            "INITIAL_DIR=$initial_dir" \
-            "COMMAND=${COMMAND:-}" \
+            "$(ssh_quote_env PROJECT "$project_name")" \
+            "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
+            "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
             "COMMAND_ARGS_B64=$command_args_b64" \
             zsh --login || true
 }
