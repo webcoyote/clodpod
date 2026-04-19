@@ -185,6 +185,11 @@ cmd_build_base() {
         esac
     done
 
+    # Validate profile name (prevent path traversal)
+    if [[ ! "$profile" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid profile name ($profile)"
+    fi
+
     # Import install script into profile if provided
     if [[ -n "$install_script" ]]; then
         local resolved_script

@@ -461,6 +461,11 @@ vm_create() {
         esac
     done
 
+    # Validate base/profile name (prevent path traversal)
+    if [[ ! "$create_base" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid base name ($create_base)"
+    fi
+
     local base_vm
     base_vm="$(base_get_vm_name "$create_base")"
     if [[ -z "$base_vm" ]]; then
