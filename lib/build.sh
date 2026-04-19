@@ -217,6 +217,9 @@ build_dst_vm() {
 
     debug "Building $DST_VM_NAME..."
 
+    TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
+    trap cleanup_tmp_vm EXIT
+
     # If the base image is already running then do some jiggery-pokery
     # to rename it so we can avoid stopping the VM and starting another.
     if [[ "$(get_vm_state "$BASE_VM_NAME")" == "running" ]]; then
@@ -236,6 +239,7 @@ build_dst_vm() {
 
     trace "Renaming $TMP_VM_NAME to $DST_VM_NAME"
     tart rename "$TMP_VM_NAME" "$DST_VM_NAME"
+    TMP_VM_NAME=""
     set_setting "dst_ssh_user" "admin"
 
     debug "Building $DST_VM_NAME successful"
