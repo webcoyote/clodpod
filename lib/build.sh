@@ -136,7 +136,7 @@ build_base_vm() {
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
         "admin@$ipaddr" \
-        /usr/bin/env "TERM=xterm-256color" zsh --login || true
+        /usr/bin/env "TERM=xterm-256color" ${COLORTERM:+"COLORTERM=$COLORTERM"} zsh --login || true
 
     trace "Stopping $TMP_VM_NAME to flush directory service writes..."
     stop_vm "$TMP_VM_NAME"
@@ -293,6 +293,7 @@ legacy_start_and_connect() {
         "$dst_ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
+            ${COLORTERM:+"COLORTERM=$COLORTERM"} \
             "$(ssh_quote_env PROJECT "$PROJECT_NAME")" \
             "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
             "$(ssh_quote_env COMMAND "${COMMAND:-}")" \

@@ -73,6 +73,7 @@ ssh_into_vm() {
         "$ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
+            ${COLORTERM:+"COLORTERM=$COLORTERM"} \
             "$(ssh_quote_env PROJECT "$project_name")" \
             "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
             "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
