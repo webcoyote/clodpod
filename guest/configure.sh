@@ -97,11 +97,7 @@ if [[ "$ALLOW_SUDO" == "true" ]]; then
     echo "admin ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/clodpod >/dev/null
     sudo chmod 440 /etc/sudoers.d/clodpod
 else
-    debug "Removing all admin NOPASSWD rules..."
-    sudo bash -c '
-        for f in /etc/sudoers.d/*; do
-            [ -f "$f" ] || continue
-            grep -qE "^(admin|%admin).*NOPASSWD" "$f" 2>/dev/null && rm -f "$f"
-        done
-    '
+    debug "Removing clodpod-managed NOPASSWD rules..."
+    # Remove our own sudoers file and the known OCI-provided one
+    sudo rm -f /etc/sudoers.d/clodpod /etc/sudoers.d/admin-nopasswd
 fi
