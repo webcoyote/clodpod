@@ -290,8 +290,6 @@ vm_destroy_instance() {
 }
 
 vm_destroy() {
-    [[ $# -gt 0 ]] || abort "Usage: clod destroy <name> | --all"
-
     if [[ "${1:-}" == "--all" ]]; then
         [[ $# -eq 1 ]] || abort "Error: destroy --all does not accept additional arguments"
 
@@ -307,8 +305,40 @@ vm_destroy() {
         return 0
     fi
 
-    [[ $# -eq 1 ]] || abort "Error: destroy accepts exactly one instance name"
-    vm_destroy_instance "$1"
+    [[ $# -le 1 ]] || abort "Error: destroy accepts exactly one instance name"
+
+    local target="${1:-}"
+
+    # Auto-select when no name given or name not found
+    if [[ -z "$target" ]] || ! vm_instance_exists "$target"; then
+        local instance_count
+        instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
+        if [[ "${instance_count:-0}" -eq 1 ]]; then
+            local only_name
+            only_name="$(vm_get_only_instance_name)"
+            if [[ -n "$target" ]] && [[ "$target" != "$only_name" ]]; then
+                info "No instance named '$target' — using '$only_name'"
+            fi
+            vm_destroy_instance "$only_name"
+            return 0
+        elif [[ "${instance_count:-0}" -gt 1 ]]; then
+            vm_list
+            abort "Multiple instances exist. Specify name: clod destroy <name>"
+        else
+            # Fall through to legacy VM cleanup
+            if get_vm_exists "$DST_VM_NAME"; then
+                delete_vm "$DST_VM_NAME"
+                info "Deleted legacy VM $DST_VM_NAME"
+                return 0
+            fi
+            if [[ -n "$target" ]] && base_exists "$target"; then
+                abort "'$target' is a base, not an instance. Create an instance first: clod create <name> --dir name:path"
+            fi
+            abort "No instances to destroy"
+        fi
+    fi
+
+    vm_destroy_instance "$target"
 }
 
 vm_set() {

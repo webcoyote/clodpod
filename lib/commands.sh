@@ -196,16 +196,18 @@ EOF
 
 show_help_destroy() {
     cat <<'EOF'
-Usage: clod destroy <name>
+Usage: clod destroy [name]
        clod destroy --all
 
 Delete a named VM instance (stops if running, removes VM and DB records).
+If only one instance exists, the name can be omitted.
 
 Options:
   --all     Delete all named instances
 
 Examples:
   clod destroy dev
+  clod destroy           # auto-selects if one instance exists
   clod destroy --all
 EOF
 }
