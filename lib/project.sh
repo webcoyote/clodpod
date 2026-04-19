@@ -49,6 +49,7 @@ remove_project() {
         error "Error: Project name or path required to remove project"
         return 1
     fi
+    local path
     path="$(resolve_physical_path "$identifier" 2>/dev/null || echo "")"
 
     # Try to remove by name first, then by path
