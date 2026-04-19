@@ -189,9 +189,9 @@ legacy_start_and_connect() {
         "clodpod@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
-            "PROJECT=$PROJECT_NAME" \
-            "INITIAL_DIR=$initial_dir" \
-            "COMMAND=${COMMAND:-}" \
+            "$(ssh_quote_env PROJECT "$PROJECT_NAME")" \
+            "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
+            "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
             "COMMAND_ARGS_B64=$command_args_b64" \
             zsh --login || true
 }
