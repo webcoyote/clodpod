@@ -64,7 +64,7 @@ refresh_guest_home() {
     debug "Syncing guest directory..."
     local guest_dir="$DATA_DIR/guest"
     mkdir -p "$guest_dir"
-    rsync -a --delete --exclude '.gitconfig' --exclude '.ssh/' "$WORKSPACE/guest/" "$guest_dir/"
+    /usr/bin/rsync -a --delete --exclude '.gitconfig' --exclude '.ssh/' "$WORKSPACE/guest/" "$guest_dir/"
 
     debug "Configuring credentials..."
     local git_user_name
