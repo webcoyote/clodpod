@@ -68,8 +68,8 @@ refresh_guest_home() {
     local git_user_email
     git_user_name="$(git config --global --get user.name 2>/dev/null || echo "")"
     git_user_email="$(git config --global --get user.email 2>/dev/null || echo "")"
-    git config set -f "$guest_dir/home/.gitconfig" user.name "$git_user_name"
-    git config set -f "$guest_dir/home/.gitconfig" user.email "$git_user_email"
+    git config -f "$guest_dir/home/.gitconfig" user.name "$git_user_name"
+    git config -f "$guest_dir/home/.gitconfig" user.email "$git_user_email"
 
     local guest_authorized_keys="$guest_dir/home/.ssh/authorized_keys"
     # shellcheck disable=SC2174 # When used with -p, -m only applies to the deepest directory. # Yup, that's fine
