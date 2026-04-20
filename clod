@@ -46,6 +46,70 @@ init_db
 migrate_vm_names
 
 
+# Pre-parse global options so they take effect even on early-dispatched subcommands.
+# Unknown flags and positional args are preserved in $@ for subcommand parsers.
+NO_GRAPHICS="${NO_GRAPHICS:-}"
+SHOULD_SELECT_PROJECT=true
+ALLOW_SUDO=
+_pre_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -v|--verbose)
+            ((VERBOSE++)) || true
+            shift
+            ;;
+        -vv)
+            ((VERBOSE+=2)) || true
+            shift
+            ;;
+        -vvv)
+            ((VERBOSE+=3)) || true
+            shift
+            ;;
+        --graphics)
+            NO_GRAPHICS=
+            shift
+            ;;
+        --no-graphics)
+            NO_GRAPHICS=true
+            shift
+            ;;
+        --rebuild-base)
+            REBUILD_BASE=true
+            shift
+            ;;
+        --rebuild-oci)
+            REBUILD_OCI=true
+            shift
+            ;;
+        --rebuild-dst)
+            REBUILD_DST=true
+            shift
+            ;;
+        --allow-sudo)
+            ALLOW_SUDO=true
+            shift
+            ;;
+        --no-allow-sudo)
+            ALLOW_SUDO=false
+            shift
+            ;;
+        -n|--no-select)
+            SHOULD_SELECT_PROJECT=false
+            shift
+            ;;
+        --)
+            _pre_args+=("$@")
+            break
+            ;;
+        *)
+            _pre_args+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- ${_pre_args[@]+"${_pre_args[@]}"}
+
 # Intercept commands that need their own option parsing before the global loop.
 # But let -h/--help/--version pass through to the normal handler.
 for arg in "$@"; do
@@ -60,7 +124,17 @@ for arg in "$@"; do
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
             for _a in "$@"; do
-                case "$_a" in --) break ;; -h|--help) show_help_build_base; exit 0 ;; esac
+                case "$_a" in
+                    --)
+                        break
+                        ;;
+                    -h|--help)
+                        show_help_build_base
+                        exit 0
+                        ;;
+                    *)
+                        ;;
+                esac
             done
             cmd_build_base "$@"
             exit 0
@@ -69,7 +143,17 @@ for arg in "$@"; do
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
             for _a in "$@"; do
-                case "$_a" in --) break ;; -h|--help) show_help_create; exit 0 ;; esac
+                case "$_a" in
+                    --)
+                        break
+                        ;;
+                    -h|--help)
+                        show_help_create
+                        exit 0
+                        ;;
+                    *)
+                        ;;
+                esac
             done
             vm_create "$@"
             exit 0
@@ -78,7 +162,17 @@ for arg in "$@"; do
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
             for _a in "$@"; do
-                case "$_a" in --) break ;; -h|--help) show_help_destroy; exit 0 ;; esac
+                case "$_a" in
+                    --)
+                        break
+                        ;;
+                    -h|--help)
+                        show_help_destroy
+                        exit 0
+                        ;;
+                    *)
+                        ;;
+                esac
             done
             vm_destroy "$@"
             exit 0
@@ -87,7 +181,17 @@ for arg in "$@"; do
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
             for _a in "$@"; do
-                case "$_a" in --) break ;; -h|--help) show_help_set; exit 0 ;; esac
+                case "$_a" in
+                    --)
+                        break
+                        ;;
+                    -h|--help)
+                        show_help_set
+                        exit 0
+                        ;;
+                    *)
+                        ;;
+                esac
             done
             vm_set "$@"
             exit 0
@@ -97,7 +201,17 @@ for arg in "$@"; do
             shift
             # Check --help before shell's own parser (stop at --)
             for _a in "$@"; do
-                case "$_a" in --) break ;; -h|--help) show_help_shell; exit 0 ;; esac
+                case "$_a" in
+                    --)
+                        break
+                        ;;
+                    -h|--help)
+                        show_help_shell
+                        exit 0
+                        ;;
+                    *)
+                        ;;
+                esac
             done
             # Parse shell args: [--ram SIZE] [target] [-- cmd...]
             COMMAND_ARGS=()
@@ -156,10 +270,7 @@ for arg in "$@"; do
     esac
 done
 
-# Parse optional arguments
-NO_GRAPHICS="${NO_GRAPHICS:-}"
-SHOULD_SELECT_PROJECT=true
-ALLOW_SUDO=
+# Parse remaining arguments (global options already consumed by pre-parse above)
 NEW_ARGS=()
 COMMAND_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -171,50 +282,6 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             break
-            ;;
-        -v|--verbose)
-            ((VERBOSE++)) || true
-            shift
-            ;;
-        -vv)
-            ((VERBOSE+=2)) || true
-            shift
-            ;;
-        -vvv)
-            ((VERBOSE+=3)) || true
-            shift
-            ;;
-        --graphics)
-            NO_GRAPHICS=
-            shift
-            ;;
-        --no-graphics)
-            NO_GRAPHICS=true
-            shift
-            ;;
-        --rebuild-base)
-            REBUILD_BASE=true
-            shift
-            ;;
-        --rebuild-oci)
-            REBUILD_OCI=true
-            shift
-            ;;
-        --rebuild-dst)
-            REBUILD_DST=true
-            shift
-            ;;
-        --allow-sudo)
-            ALLOW_SUDO=true
-            shift
-            ;;
-        --no-allow-sudo)
-            ALLOW_SUDO=false
-            shift
-            ;;
-        -n|--no-select)
-            SHOULD_SELECT_PROJECT=false
-            shift
             ;;
         -h|--help)
             show_help
