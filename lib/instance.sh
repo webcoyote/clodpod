@@ -309,16 +309,21 @@ vm_destroy() {
 
     local target="${1:-}"
 
-    # Auto-select when no name given or name not found
-    if [[ -z "$target" ]] || ! vm_instance_exists "$target"; then
+    # If a name was given but doesn't exist, don't auto-select a different instance
+    if [[ -n "$target" ]] && ! vm_instance_exists "$target"; then
+        if base_exists "$target"; then
+            abort "'$target' is a base, not an instance. Create an instance first: clod create <name> --dir name:path"
+        fi
+        abort "No instance named '$target'"
+    fi
+
+    # Auto-select when no name given
+    if [[ -z "$target" ]]; then
         local instance_count
         instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
         if [[ "${instance_count:-0}" -eq 1 ]]; then
             local only_name
             only_name="$(vm_get_only_instance_name)"
-            if [[ -n "$target" ]] && [[ "$target" != "$only_name" ]]; then
-                info "No instance named '$target' — using '$only_name'"
-            fi
             vm_destroy_instance "$only_name"
             return 0
         elif [[ "${instance_count:-0}" -gt 1 ]]; then
@@ -330,9 +335,6 @@ vm_destroy() {
                 delete_vm "$DST_VM_NAME"
                 info "Deleted legacy VM $DST_VM_NAME"
                 return 0
-            fi
-            if [[ -n "$target" ]] && base_exists "$target"; then
-                abort "'$target' is a base, not an instance. Create an instance first: clod create <name> --dir name:path"
             fi
             abort "No instances to destroy"
         fi
