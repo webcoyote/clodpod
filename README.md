@@ -191,7 +191,7 @@ See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the list of contributors to this proj
 
 This project builds on the great works of other open-source authors:
 
-- [Tart](https://tart.run): macOS and Linux VMs on Apple Silicon
+- [Tart](https://tart.run): macOS and Linux VMs on Apple Silicon (licensed under [FSL-1.1-MIT](https://tart.run/licensing/); free for individuals, commercial use may require a paid license)
 - [Homebrew](https://brew.sh): 🍺 The missing package manager for macOS (or Linux)
 - [Sqlite](https://sqlite.org): The most used database engine in the world
 - [Shellcheck](https://www.shellcheck.net): finds bugs in your shell scripts
