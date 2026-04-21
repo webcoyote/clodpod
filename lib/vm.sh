@@ -178,6 +178,20 @@ install_tools () {
         /usr/bin/env bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     fi
 
+    # Prompt for Tart license acceptance if not already installed
+    if ! command -v tart &>/dev/null && [[ -z "${CLODPOD_ACCEPT_TART_LICENSE:-}" ]]; then
+        info "Clodpod requires Tart (https://tart.run) for virtual machine management."
+        info "Tart is licensed under FSL-1.1-MIT. It is free for individuals and"
+        info "small organizations, but commercial use may require a paid license."
+        info "See https://tart.run/licensing/ for details."
+        info ""
+        info "To skip this prompt, use --accept-tart-license or set"
+        info "CLODPOD_ACCEPT_TART_LICENSE=1"
+        read -p "Install Tart? (y/N) " -n 1 -r response
+        echo
+        [[ "$response" =~ ^[Yy]$ ]] || abort "Tart is required. Aborting."
+    fi
+
     debug "Installing tools..."
     local TOOLS=()
     TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon

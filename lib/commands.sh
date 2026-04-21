@@ -90,6 +90,8 @@ Global options:
   -h, --help                    Show help
   --version                     Show version
 
+set CLODPOD_ACCEPT_TART_LICENSE=1 to avoid license notice
+
 Run 'clod help <command>' for command-specific help.
 EOF
 }
