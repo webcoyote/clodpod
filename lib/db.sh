@@ -21,6 +21,15 @@ migrate_db() {
     refresh_guest_home
 }
 
+# Check whether a column exists on a table. Uses grep's exit status directly
+# to avoid arithmetic-context evaluation of a non-numeric variable (which
+# breaks under `set -u` if the value happens to contain bare words).
+column_exists() {
+    local table="$1"
+    local column="$2"
+    sqlite3 "$DB_FILE" "PRAGMA table_info($table);" | grep -q "|$column|"
+}
+
 init_db() {
     debug "Creating $DB_FILE database..."
     sqlite3 "$DB_FILE" <<EOF
@@ -57,23 +66,17 @@ CREATE TABLE IF NOT EXISTS bases (
 EOF
 
     # Migration: add ram_mb column to existing instances tables
-    local has_ram_mb
-    has_ram_mb=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ram_mb') || true
-    if [[ "$has_ram_mb" -eq 0 ]]; then
+    if ! column_exists instances ram_mb; then
         sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ram_mb INTEGER;"
     fi
 
     # Migration: add base_name column to instances table
-    local has_base_name
-    has_base_name=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'base_name') || true
-    if [[ "$has_base_name" -eq 0 ]]; then
+    if ! column_exists instances base_name; then
         sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN base_name TEXT;"
     fi
 
     # Migration: add ssh_user column to instances table
-    local has_ssh_user
-    has_ssh_user=$(sqlite3 "$DB_FILE" "PRAGMA table_info(instances);" | grep -c 'ssh_user') || true
-    if [[ "$has_ssh_user" -eq 0 ]]; then
+    if ! column_exists instances ssh_user; then
         sqlite3 "$DB_FILE" "ALTER TABLE instances ADD COLUMN ssh_user TEXT;"
     fi
 }
