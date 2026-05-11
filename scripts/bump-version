@@ -5,7 +5,7 @@ trap 'echo >&2 "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ER
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-PROJECT_PATH="./clod"
+PROJECT_PATH="./lib/config.sh"
 
 # Function to display usage
 show_usage() {
@@ -54,7 +54,7 @@ if ! git diff-index --quiet HEAD -- || [[ -n "$(git ls-files --others --exclude-
 fi
 
 # Get current version
-CURRENT_VERSION=$(awk -F'"' '/^VERSION="[0-9.]*"/ {print $2; exit}' "$PROJECT_PATH")
+CURRENT_VERSION=$(awk -F'"' '/\s*VERSION="[0-9.]*"/ {print $2; exit}' "$PROJECT_PATH")
 echo "Current version: $CURRENT_VERSION"
 
 # Parse version components
