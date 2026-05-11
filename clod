@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build a MacOS virtual machine that runs AI agents and developer tools
 set -Eeuo pipefail
-trap 'echo "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+trap 'echo >&2 "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
 
 # Resolve symlinks (macOS bash 3.2 compatible, no readlink -f)
 SOURCE="${BASH_SOURCE[0]}"
