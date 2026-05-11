@@ -21,13 +21,12 @@ migrate_db() {
     refresh_guest_home
 }
 
-# Check whether a column exists on a table. Uses grep's exit status directly
-# to avoid arithmetic-context evaluation of a non-numeric variable (which
-# breaks under `set -u` if the value happens to contain bare words).
 column_exists() {
     local table="$1"
     local column="$2"
-    sqlite3 "$DB_FILE" "PRAGMA table_info($table);" | grep -q "|$column|"
+    local count
+    count=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")
+    [[ "$count" -gt 0 ]]
 }
 
 init_db() {
