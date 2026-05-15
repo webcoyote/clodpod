@@ -23,6 +23,7 @@ Describe 'top-level help'
         When call show_help
         The output should include "create, cr"
         The output should include "build-base"
+        The output should include "clone-base"
         The output should include "shell, sh, s"
         The output should include "help, h"
     End
@@ -58,6 +59,14 @@ Describe 'per-command help'
         The output should include "--rebuild-oci"
         The output should include "--profile"
         The output should include "ALLOW_SUDO"
+    End
+
+    It 'show_help_clone_base shows usage and key requirements'
+        When call show_help_clone_base
+        The output should include "clod clone-base <src-profile> <dst-profile>"
+        The output should include "copy-on-write"
+        The output should include "stopped"
+        The output should include "--base"
     End
 
     It 'show_help_set shows all set options'

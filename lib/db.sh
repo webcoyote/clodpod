@@ -190,6 +190,11 @@ base_get_vm_name() {
     sqlite3 "$DB_FILE" "SELECT vm_name FROM bases WHERE name = '$(sql_escape "$name")' LIMIT 1;"
 }
 
+base_get_oci_source() {
+    local name="$1"
+    sqlite3 "$DB_FILE" "SELECT oci_source FROM bases WHERE name = '$(sql_escape "$name")' LIMIT 1;"
+}
+
 base_list() {
     sqlite3 -separator '|' "$DB_FILE" <<EOF
 SELECT name, vm_name, oci_source, created_at FROM bases ORDER BY created_at DESC;

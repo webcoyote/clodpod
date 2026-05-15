@@ -139,6 +139,12 @@ for arg in "$@"; do
             cmd_build_base "$@"
             exit 0
             ;;
+        clone-base)
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
+            shift
+            cmd_clone_base "$@"
+            exit 0
+            ;;
         create|cr)
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift

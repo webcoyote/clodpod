@@ -61,6 +61,7 @@ Commands:
   create, cr        Create a named VM instance
   destroy           Delete a named VM instance
   build-base        Build or rebuild a base image
+  clone-base        Clone a base into a new profile (CoW, no install.sh)
   start             Start VM without connecting
   stop              Stop VM(s)
   set               Change VM settings
@@ -159,6 +160,47 @@ Examples:
 EOF
 }
 
+show_help_clone_base() {
+    cat <<'EOF'
+Usage: clod clone-base <src-profile> <dst-profile>
+
+Clone an existing base profile into a new one via APFS copy-on-write.
+No install.sh, no interactive logins — the new base inherits everything
+the source already has, and you make whatever changes you want directly
+in the new base afterwards.
+
+Use this when the desired delta from the source is something other than
+the install.sh pipeline: a checkpoint before risky modifications, a
+hand-edited variant, recovery-mode tweaks (custom boot policy, security
+settings), or anything else you'd rather hand-roll than re-derive. For
+variants whose delta is brew packages or new service logins, use
+'clod build-base --profile <name>' instead — those need install.sh to
+actually run.
+
+The source base must be stopped. The destination must not already exist
+(neither in the bases registry nor as a tart VM).
+
+After cloning, derive instances:
+  clod create <name> --base <dst-profile> --dir ...
+
+To boot the new base directly (to inspect it, edit files, or enter
+recoveryOS):
+  tart run clodpod-base-<dst-profile>              # normal boot
+  tart run --recovery clodpod-base-<dst-profile>   # recoveryOS
+
+Note on identity-bound state: tart applies --random-mac --random-serial
+when you later create instances from a base. State that's bound to the
+VM's serial number — most notably Apple Silicon LocalPolicy / boot
+policy — may not survive that re-serialization. If your modification to
+the new base depends on identity-bound state, you may end up needing to
+redo it per instance.
+
+Examples:
+  clod clone-base default checkpoint
+  clod clone-base default custom
+EOF
+}
+
 show_help_set() {
     cat <<'EOF'
 Usage: clod set <option> [args]
@@ -232,6 +274,7 @@ dispatch_help() {
         create|cr)          show_help_create ;;
         destroy)            show_help_destroy ;;
         build-base)         show_help_build_base ;;
+        clone-base)         show_help_clone_base ;;
         set)                show_help_set ;;
         shell|sh|s)         show_help_shell ;;
         stop)               show_help_stop ;;
