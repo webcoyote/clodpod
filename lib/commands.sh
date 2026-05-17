@@ -61,6 +61,7 @@ Commands:
   create, cr        Create a named VM instance
   destroy           Delete a named VM instance
   build-base        Build or rebuild a base image
+  clone-base        Clone a base into a new profile (CoW, no install.sh)
   start             Start VM without connecting
   stop              Stop VM(s)
   set               Change VM settings
@@ -159,6 +160,47 @@ Examples:
 EOF
 }
 
+show_help_clone_base() {
+    cat <<'EOF'
+Usage: clod clone-base <src-profile> <dst-profile>
+
+Clone an existing base profile into a new one via APFS copy-on-write.
+No install.sh, no interactive logins — the new base inherits everything
+the source already has, and you make whatever changes you want directly
+in the new base afterwards.
+
+Use this when the desired delta from the source is something other than
+the install.sh pipeline: a checkpoint before risky modifications, a
+hand-edited variant, recovery-mode tweaks (custom boot policy, security
+settings), or anything else you'd rather hand-roll than re-derive. For
+variants whose delta is brew packages or new service logins, use
+'clod build-base --profile <name>' instead — those need install.sh to
+actually run.
+
+The source base must be stopped. The destination must not already exist
+(neither in the bases registry nor as a tart VM).
+
+After cloning, derive instances:
+  clod create <name> --base <dst-profile> --dir ...
+
+To boot the new base directly (to inspect it, edit files, or enter
+recoveryOS):
+  tart run clodpod-base-<dst-profile>              # normal boot
+  tart run --recovery clodpod-base-<dst-profile>   # recoveryOS
+
+Note on identity-bound state: tart applies --random-mac --random-serial
+when you later create instances from a base. State that's bound to the
+VM's serial number — most notably Apple Silicon LocalPolicy / boot
+policy — may not survive that re-serialization. If your modification to
+the new base depends on identity-bound state, you may end up needing to
+redo it per instance.
+
+Examples:
+  clod clone-base default checkpoint
+  clod clone-base default custom
+EOF
+}
+
 show_help_set() {
     cat <<'EOF'
 Usage: clod set <option> [args]
@@ -226,12 +268,30 @@ Examples:
 EOF
 }
 
+show_help_start() {
+    cat <<'EOF'
+Usage: clod start [NAME]
+
+Start a named VM instance without connecting (no SSH session). Mounts the
+instance's --dir mappings so a subsequent `clod shell <name>` reconnects
+without restarting. If only one instance exists, NAME can be omitted.
+
+Use --no-graphics to start headless.
+
+Examples:
+  clod start dev
+  clod start                 # auto-selects if one instance exists
+  clod --no-graphics start dev
+EOF
+}
+
 # Dispatch per-command help from 'clod help <command>'
 dispatch_help() {
     case "${1:-}" in
         create|cr)          show_help_create ;;
         destroy)            show_help_destroy ;;
         build-base)         show_help_build_base ;;
+        clone-base)         show_help_clone_base ;;
         set)                show_help_set ;;
         shell|sh|s)         show_help_shell ;;
         stop)               show_help_stop ;;
@@ -239,7 +299,7 @@ dispatch_help() {
         codex|co)           show_help_command "codex [PATH] [NAME] [-- args...]" "Run OpenAI Codex in a VM." ;;
         cursor|cu|ca)       show_help_command "cursor [PATH] [NAME] [-- args...]" "Run Cursor Agent in a VM." ;;
         gemini|gem|g)       show_help_command "gemini [PATH] [NAME] [-- args...]" "Run Google Gemini in a VM." ;;
-        start)              show_help_command "start" "Start the VM without connecting (useful for GUI apps)." ;;
+        start)              show_help_start ;;
         add|a)              show_help_command "add PATH [NAME]" "Add a project directory. NAME defaults to directory basename." ;;
         remove|rm)          show_help_command "remove <name|path>" "Remove a project by name or path." ;;
         list|ls|l)          show_help_command "list" "List memory budget, bases, instances, and projects." ;;

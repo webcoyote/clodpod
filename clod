@@ -139,6 +139,12 @@ for arg in "$@"; do
             cmd_build_base "$@"
             exit 0
             ;;
+        clone-base)
+            while [[ "${1:-}" != "$arg" ]]; do shift; done
+            shift
+            cmd_clone_base "$@"
+            exit 0
+            ;;
         create|cr)
             while [[ "${1:-}" != "$arg" ]]; do shift; done
             shift
@@ -335,6 +341,13 @@ case "${1:-}" in
         PROJECT_NAME="${3:-}"
         ;;
     start)
+        # Named-instance start: explicit name OR auto-select when exactly one
+        # instance exists. Fall through to legacy start only when no name was
+        # given AND no named instances exist (preserves --rebuild-* legacy flow).
+        if [[ -n "${2:-}" ]] || [[ "$(vm_get_instance_count 2>/dev/null || echo 0)" -gt 0 ]]; then
+            vm_start_dispatch "${2:-}"
+            exit 0
+        fi
         COMMAND=start
         ;;
     stop)

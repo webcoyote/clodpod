@@ -212,6 +212,89 @@ cmd_build_base() {
     build_base_vm "$profile"
 }
 
+# Clone an existing base profile into a new one via APFS copy-on-write.
+# Skips install.sh + interactive logins entirely — the new base inherits
+# everything baked into the source. Useful when the desired delta from the
+# source is something other than what install.sh provisions: a checkpoint
+# before risky changes, hand-edited config, recovery-mode tweaks, or any
+# other modification you'd rather hand-roll than re-derive from scratch.
+#
+# Whatever the user wants to change in the new base they do themselves
+# after the clone — this command just produces a bootable, registered
+# fork of the source.
+cmd_clone_base() {
+    local src=""
+    local dst=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                show_help_clone_base
+                exit 0
+                ;;
+            -*)
+                abort "Error: unknown clone-base option ($1)"
+                ;;
+            *)
+                if [[ -z "$src" ]]; then
+                    src="$1"
+                elif [[ -z "$dst" ]]; then
+                    dst="$1"
+                else
+                    abort "Usage: clod clone-base <src-profile> <dst-profile>"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    [[ -n "$src" && -n "$dst" ]] || abort "Usage: clod clone-base <src-profile> <dst-profile>"
+
+    # Validate names (same rule as --profile in build-base, prevents path
+    # traversal in the per-profile install-extra.sh dir and keeps tart VM
+    # names sane).
+    if [[ ! "$src" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid source profile name ($src)"
+    fi
+    if [[ ! "$dst" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
+        abort "Error: invalid destination profile name ($dst)"
+    fi
+    [[ "$src" != "$dst" ]] || abort "Error: source and destination profiles must differ"
+
+    base_exists "$src" || abort "Error: source base profile not found ($src). Try: clod list"
+    ! base_exists "$dst" || abort "Error: destination base profile already exists ($dst)"
+
+    local src_vm dst_vm oci_source
+    src_vm="$(base_get_vm_name "$src")"
+    oci_source="$(base_get_oci_source "$src")"
+    dst_vm="clodpod-base-${dst}"
+
+    # Belt-and-braces: the bases row may be stale relative to tart's view
+    # (e.g. user manually deleted the VM). Verify the source VM actually
+    # exists and the dst VM name isn't already taken.
+    get_vm_exists "$src_vm" || abort "Error: source VM missing ($src_vm). Stored in bases but not in tart — clean up with 'sqlite3 \"$DB_FILE\" \"DELETE FROM bases WHERE name = ...\"'."
+    ! get_vm_exists "$dst_vm" || abort "Error: a tart VM named $dst_vm already exists"
+
+    # tart clone requires the source to be stopped. Don't auto-stop —
+    # could interrupt a session the user has live in the source base.
+    local src_state
+    src_state="$(get_vm_state "$src_vm")"
+    [[ "$src_state" == "stopped" ]] || abort "Error: source VM ($src_vm) must be stopped before cloning (current state: $src_state). Stop it via tart stop $src_vm or by exiting any live session."
+
+    info "Cloning base $src → $dst (APFS CoW; install.sh not re-run)"
+    clone_vm "$src_vm" "$dst_vm"
+    base_register "$dst" "$dst_vm" "$oci_source"
+
+    info "Base $dst registered."
+    info ""
+    info "Derive instances from it:"
+    info "  clod create <instance> --base $dst --dir ..."
+    info ""
+    info "To boot the new base directly (e.g. to inspect or modify it):"
+    info "  tart run $dst_vm              # normal boot"
+    info "  tart run --recovery $dst_vm   # recoveryOS (boot policy, csrutil, …)"
+}
+
 build_dst_vm() {
     [[ "${REBUILD_DST:-}" != "" ]] || return 0
 

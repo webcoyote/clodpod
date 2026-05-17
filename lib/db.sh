@@ -2,8 +2,13 @@
 # shellcheck disable=SC2154 # globals set by config.sh: DB_FILE, DATA_DIR, OLD_DB_FILE
 # Database operations: init, migrate, instance queries, settings
 
-# Escape single quotes for safe SQLite string literals: ' → ''
-sql_escape() { printf '%s' "${1//\'/\'\'}"; }
+# Escape single quotes for SQL string literals (doubles them, per the SQL standard).
+# The replacement is held in a variable on purpose: a literal "''" inside the
+# replacement of ${1//\'/''} is parsed as two adjacent empty strings on bash 4+
+# (so the apostrophe gets *deleted*), while a literal "\'\'" works on bash 4+
+# but emits the backslashes verbatim on bash 3.2. Routing through $q sidesteps
+# both quirks and works identically on bash 3.2 through 5.x.
+sql_escape() { local q="''"; printf '%s' "${1//\'/$q}"; }
 
 migrate_db() {
     if [[ -f "$DATA_DIR/clodpod.sqlite" ]]; then
@@ -188,6 +193,11 @@ base_remove() {
 base_get_vm_name() {
     local name="$1"
     sqlite3 "$DB_FILE" "SELECT vm_name FROM bases WHERE name = '$(sql_escape "$name")' LIMIT 1;"
+}
+
+base_get_oci_source() {
+    local name="$1"
+    sqlite3 "$DB_FILE" "SELECT oci_source FROM bases WHERE name = '$(sql_escape "$name")' LIMIT 1;"
 }
 
 base_list() {
