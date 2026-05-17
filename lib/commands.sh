@@ -268,6 +268,23 @@ Examples:
 EOF
 }
 
+show_help_start() {
+    cat <<'EOF'
+Usage: clod start [NAME]
+
+Start a named VM instance without connecting (no SSH session). Mounts the
+instance's --dir mappings so a subsequent `clod shell <name>` reconnects
+without restarting. If only one instance exists, NAME can be omitted.
+
+Use --no-graphics to start headless.
+
+Examples:
+  clod start dev
+  clod start                 # auto-selects if one instance exists
+  clod --no-graphics start dev
+EOF
+}
+
 # Dispatch per-command help from 'clod help <command>'
 dispatch_help() {
     case "${1:-}" in
@@ -282,7 +299,7 @@ dispatch_help() {
         codex|co)           show_help_command "codex [PATH] [NAME] [-- args...]" "Run OpenAI Codex in a VM." ;;
         cursor|cu|ca)       show_help_command "cursor [PATH] [NAME] [-- args...]" "Run Cursor Agent in a VM." ;;
         gemini|gem|g)       show_help_command "gemini [PATH] [NAME] [-- args...]" "Run Google Gemini in a VM." ;;
-        start)              show_help_command "start" "Start the VM without connecting (useful for GUI apps)." ;;
+        start)              show_help_start ;;
         add|a)              show_help_command "add PATH [NAME]" "Add a project directory. NAME defaults to directory basename." ;;
         remove|rm)          show_help_command "remove <name|path>" "Remove a project by name or path." ;;
         list|ls|l)          show_help_command "list" "List memory budget, bases, instances, and projects." ;;

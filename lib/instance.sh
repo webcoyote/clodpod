@@ -260,6 +260,82 @@ vm_stop_instance() {
     stop_vm "$vm_name"
 }
 
+# Boot a named instance without connecting. Mounts the same --dir arguments
+# vm_shell does so a later `clod shell <name>` reconnects to a VM that already
+# has the project dirs mapped; reusing a no-dir start would force a restart.
+vm_start_instance() {
+    local instance_name="$1"
+    local vm_name
+    local effective_ram
+
+    vm_name="$(vm_get_instance_vm_name "$instance_name")"
+    [[ -n "$vm_name" ]] || abort "Error: instance not found ($instance_name)"
+
+    if ! get_vm_exists "$vm_name"; then
+        abort "Error: VM missing for instance $instance_name ($vm_name). Destroy and recreate it."
+    fi
+
+    if [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+        info "Instance $instance_name is already running"
+        return 0
+    fi
+
+    effective_ram="$(vm_get_instance_ram_mb "$instance_name")"
+    [[ "$effective_ram" =~ ^[0-9]+$ ]] || effective_ram=0
+
+    local dir_args=()
+    local dir_rows
+    dir_rows="$(vm_get_instance_dirs "$instance_name")"
+    if [[ -n "$dir_rows" ]]; then
+        local dir_name
+        local dir_path
+        local is_primary
+        while IFS='|' read -r dir_name dir_path is_primary; do
+            if [[ ! -d "$dir_path" ]]; then
+                warn "Instance directory missing on host: $dir_name ($dir_path)"
+                continue
+            fi
+            dir_args+=("--dir" "${dir_name}:${dir_path}")
+        done <<< "$dir_rows"
+    fi
+
+    info "Starting instance $instance_name ($vm_name)"
+    vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
+}
+
+# Auto-select target by name, by sole instance, or abort. Mirrors the policy
+# used by `clod destroy` and `clod shell` so `clod start [name]` behaves the
+# same way users already expect from other named-instance commands.
+vm_start_dispatch() {
+    local target="${1:-}"
+
+    if [[ -n "$target" ]]; then
+        if ! vm_instance_exists "$target"; then
+            if base_exists "$target"; then
+                abort "'$target' is a base, not an instance. Create an instance first: clod create <name> --dir name:path"
+            fi
+            abort "No instance named '$target'"
+        fi
+        vm_start_instance "$target"
+        return 0
+    fi
+
+    local instance_count
+    instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
+    if [[ "${instance_count:-0}" -eq 1 ]]; then
+        local only_name
+        only_name="$(vm_get_only_instance_name)"
+        vm_start_instance "$only_name"
+        return 0
+    elif [[ "${instance_count:-0}" -gt 1 ]]; then
+        vm_list
+        abort "Multiple instances exist. Specify name: clod start <name>"
+    fi
+
+    # No named instances — fall through so caller can run legacy start.
+    return 1
+}
+
 vm_delete_instance_records() {
     local instance_name="$1"
 

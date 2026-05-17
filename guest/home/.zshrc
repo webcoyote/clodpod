@@ -76,10 +76,14 @@ export PATH
 # Wait until install.sh has installed coreutils with homebrew
 # so we can use the simpler/easier/better homebrew ln tool
 LN="$(brew --prefix)/opt/coreutils/libexec/gnubin/ln"
-if [[ -x "$LN" ]]; then
+# Guard the shared-folder mount: when an instance is started with no --dir
+# args (or before tart has surfaced the mount), the path is absent — `fd`
+# would error. -r on xargs handles the symmetric case where the mount is
+# present but empty, avoiding `ln: missing file operand`.
+if [[ -x "$LN" ]] && [[ -d "/Volumes/My Shared Files" ]]; then
     mkdir -p "$HOME/projects"
     fd -t d --max-depth 1 . "/Volumes/My Shared Files" -0 | \
-        xargs -0 "$LN" -sf --target "$HOME/projects"
+        xargs -0 -r "$LN" -sf --target "$HOME/projects"
 fi
 
 
