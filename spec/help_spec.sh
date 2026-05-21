@@ -39,6 +39,11 @@ Describe 'top-level help'
         When call show_help
         The output should include "--no-select"
     End
+
+    It 'shows --firewall option'
+        When call show_help
+        The output should include "--firewall"
+    End
 End
 
 Describe 'per-command help'

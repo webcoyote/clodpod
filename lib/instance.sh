@@ -81,6 +81,23 @@ ssh_into_vm() {
         done
     fi
 
+    # Build proxy env vars when firewall is active.
+    # Detect gateway now — bridge100 is up after VM boot.
+    local proxy_env=()
+    if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
+        local proxy_url
+        proxy_url="$(firewall_proxy_url)"
+        debug "firewall: proxy_url=$proxy_url (gateway=$(firewall_detect_gateway))"
+        proxy_env+=(
+            "HTTP_PROXY=$proxy_url"
+            "HTTPS_PROXY=$proxy_url"
+            "http_proxy=$proxy_url"
+            "https_proxy=$proxy_url"
+            "NO_PROXY=localhost,127.0.0.1,.local"
+            "no_proxy=localhost,127.0.0.1,.local"
+        )
+    fi
+
     ssh \
         -q \
         -tt \
@@ -97,6 +114,7 @@ ssh_into_vm() {
             "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
             "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
             "COMMAND_ARGS_B64=$command_args_b64" \
+            ${proxy_env[@]+"${proxy_env[@]}"} \
             zsh --login
 }
 
@@ -234,6 +252,13 @@ vm_shell() {
         done <<< "$dir_rows"
     fi
 
+    # Firewall: add softnet flags to isolate VM networking
+    if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
+        while IFS= read -r flag; do
+            dir_args+=("$flag")
+        done < <(firewall_softnet_args)
+    fi
+
     if [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
         # VM already running — warn if --ram override given, then reconnect
         if [[ -n "${SHELL_RAM_OVERRIDE:-}" ]]; then
@@ -252,6 +277,9 @@ vm_shell() {
                 vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
                 [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
             fi
+        fi
+        if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
+            warn "$instance_name is already running — softnet isolation requires restart. Run: clod stop $instance_name"
         fi
     else
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
@@ -329,6 +357,13 @@ vm_start_instance() {
             fi
             dir_args+=("--dir" "${dir_name}:${dir_path}")
         done <<< "$dir_rows"
+    fi
+
+    # Firewall: add softnet flags to isolate VM networking
+    if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
+        while IFS= read -r flag; do
+            dir_args+=("$flag")
+        done < <(firewall_softnet_args)
     fi
 
     info "Starting instance $instance_name ($vm_name)"
