@@ -74,26 +74,43 @@ vm_apply_system_proxy() {
         host="${host%:*}"
     fi
 
-    ssh -q \
+    local proxy_output
+    if ! proxy_output=$(ssh -q \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
         "$ssh_user@$ipaddr" \
-        "PROXY_HOST='$host' PROXY_PORT='$port' bash -s" <<'REMOTE' || warn "system proxy: networksetup call failed (continuing — NSURLSession-backed tools may bypass the firewall)"
+        "PROXY_HOST='$host' PROXY_PORT='$port' bash -s" <<'REMOTE' 2>&1
 set -e
 # First non-disabled network service (Tart VMs typically have one "Ethernet").
 svc=$(networksetup -listallnetworkservices 2>/dev/null | grep -v '^An asterisk' | grep -v '^\*' | head -1)
-[ -z "$svc" ] && exit 0
+if [ -z "$svc" ]; then
+    echo "ERROR: networksetup -listallnetworkservices returned no services" >&2
+    networksetup -listallnetworkservices >&2 || true
+    exit 1
+fi
+echo "system proxy: service=$svc"
 if [ -n "$PROXY_HOST" ]; then
-    sudo -n networksetup -setwebproxy           "$svc" "$PROXY_HOST" "$PROXY_PORT" >/dev/null
-    sudo -n networksetup -setsecurewebproxy     "$svc" "$PROXY_HOST" "$PROXY_PORT" >/dev/null
-    sudo -n networksetup -setproxybypassdomains "$svc" localhost 127.0.0.1 '*.local' >/dev/null
+    sudo -n networksetup -setwebproxy           "$svc" "$PROXY_HOST" "$PROXY_PORT"
+    sudo -n networksetup -setsecurewebproxy     "$svc" "$PROXY_HOST" "$PROXY_PORT"
+    sudo -n networksetup -setproxybypassdomains "$svc" localhost 127.0.0.1 '*.local'
+    echo "system proxy: HTTPS=$(networksetup -getsecurewebproxy "$svc" | tr '\n' ' ')"
 else
-    sudo -n networksetup -setwebproxystate       "$svc" off >/dev/null 2>&1 || true
-    sudo -n networksetup -setsecurewebproxystate "$svc" off >/dev/null 2>&1 || true
+    sudo -n networksetup -setwebproxystate       "$svc" off || true
+    sudo -n networksetup -setsecurewebproxystate "$svc" off || true
 fi
 REMOTE
+    ); then
+        warn "system proxy: networksetup call failed — NSURLSession-backed tools (xcodebuild/SwiftPM) will bypass the firewall and time out"
+        if [[ -n "$proxy_output" ]]; then
+            printf '%s\n' "$proxy_output" | sed 's/^/  | /' >&2
+        fi
+        return
+    fi
+    if [[ -n "$proxy_output" ]] && [[ "$VERBOSE" -ge 2 ]]; then
+        printf '%s\n' "$proxy_output" | sed 's/^/  | /' >&2
+    fi
 }
 
 ssh_into_vm() {
