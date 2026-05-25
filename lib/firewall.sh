@@ -130,6 +130,10 @@ LogFile "${FIREWALL_LOG}"
 LogLevel Connect
 MaxClients 50
 ConnectPort 443
+# Port 22 lets the VM tunnel SSH to allowlisted hosts (e.g. github.com:22)
+# through the same proxy as HTTPS. Filter still applies — only domains in
+# the allowlist accept CONNECT, regardless of port.
+ConnectPort 22
 Filter "${filter_file}"
 FilterDefaultDeny Yes
 FilterType ere
