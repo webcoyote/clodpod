@@ -50,6 +50,80 @@ get_vm_ip_or_abort() {
 # Wraps in single quotes, escaping any embedded single quotes.
 ssh_quote_env() { printf "%s='%s'" "$1" "${2//\'/\'\\\'\'}"; }
 
+# Configure macOS system proxy via networksetup over SSH. NSURLSession-backed
+# tools (xcodebuild's SwiftPM, system frameworks, anything via CFNetwork) read
+# proxy settings from CFNetworkCopySystemProxySettings(), NOT from HTTP_PROXY
+# env vars. Without this, those tools bypass tinyproxy entirely and either hit
+# the softnet block (timeouts) or fail to reach allowed hosts.
+#
+# Sets system web/secure-web proxy when $proxy_url is non-empty; disables both
+# when empty (so a no-firewall session after a firewall session doesn't inherit
+# stale settings).
+#
+# Requires NOPASSWD sudo for `networksetup` on the VM — provided by
+# ALLOW_SUDO=true at build-base time.
+vm_apply_system_proxy() {
+    local ssh_user="$1"
+    local ipaddr="$2"
+    local proxy_url="$3"
+    local host="" port=""
+
+    if [[ -n "$proxy_url" ]]; then
+        host="${proxy_url#http://}"
+        port="${host##*:}"
+        host="${host%:*}"
+    fi
+
+    local proxy_output
+    if ! proxy_output=$(ssh -q \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o IdentitiesOnly=yes \
+        -i "$SSH_KEYFILE_PRIV" \
+        "$ssh_user@$ipaddr" \
+        "PROXY_HOST='$host' PROXY_PORT='$port' bash -s" <<'REMOTE' 2>&1
+set -e
+# Pick the network service whose Device matches the default-route interface.
+# A plain "first non-disabled service" picks up virtual ports (e.g.
+# com.redhat.spice.0 from SPICE virtio) that don't carry VM traffic, so the
+# proxy gets set on an interface NSURLSession never uses.
+default_dev=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+if [ -z "$default_dev" ]; then
+    echo "ERROR: no default route — VM networking is down" >&2
+    exit 1
+fi
+svc=$(networksetup -listnetworkserviceorder 2>/dev/null | awk -v dev="$default_dev" '
+    /^\([0-9]+\)/ { name=$0; sub(/^\([0-9]+\) /, "", name); next }
+    /Device:/ && index($0, "Device: " dev ")") { print name; exit }
+')
+if [ -z "$svc" ]; then
+    echo "ERROR: no networksetup service maps to default-route device $default_dev" >&2
+    networksetup -listnetworkserviceorder >&2 || true
+    exit 1
+fi
+echo "system proxy: service=$svc (device=$default_dev)"
+if [ -n "$PROXY_HOST" ]; then
+    sudo -n networksetup -setwebproxy           "$svc" "$PROXY_HOST" "$PROXY_PORT"
+    sudo -n networksetup -setsecurewebproxy     "$svc" "$PROXY_HOST" "$PROXY_PORT"
+    sudo -n networksetup -setproxybypassdomains "$svc" localhost 127.0.0.1 '*.local'
+    echo "system proxy: HTTPS=$(networksetup -getsecurewebproxy "$svc" | tr '\n' ' ')"
+else
+    sudo -n networksetup -setwebproxystate       "$svc" off || true
+    sudo -n networksetup -setsecurewebproxystate "$svc" off || true
+fi
+REMOTE
+    ); then
+        warn "system proxy: networksetup call failed — NSURLSession-backed tools (xcodebuild/SwiftPM) will bypass the firewall and time out"
+        if [[ -n "$proxy_output" ]]; then
+            printf '%s\n' "$proxy_output" | sed 's/^/  | /' >&2
+        fi
+        return
+    fi
+    if [[ -n "$proxy_output" ]] && [[ "$VERBOSE" -ge 2 ]]; then
+        printf '%s\n' "$proxy_output" | sed 's/^/  | /' >&2
+    fi
+}
+
 ssh_into_vm() {
     local vm_name="$1"
     local ssh_user="${2:-admin}"
@@ -66,8 +140,8 @@ ssh_into_vm() {
     # Build proxy env vars when firewall is active.
     # Detect gateway now — bridge100 is up after VM boot.
     local proxy_env=()
+    local proxy_url=""
     if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
-        local proxy_url
         proxy_url="$(firewall_proxy_url)"
         debug "firewall: proxy_url=$proxy_url (gateway=$(firewall_detect_gateway))"
         proxy_env+=(
@@ -79,6 +153,10 @@ ssh_into_vm() {
             "no_proxy=localhost,127.0.0.1,.local"
         )
     fi
+
+    # Apply (or clear) macOS system proxy. Required for NSURLSession-backed
+    # tools — see vm_apply_system_proxy for details. Empty $proxy_url disables.
+    vm_apply_system_proxy "$ssh_user" "$ipaddr" "$proxy_url"
 
     local ssh_cmd=(
         ssh

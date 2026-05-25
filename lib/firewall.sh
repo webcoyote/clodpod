@@ -76,6 +76,16 @@ firewall_start() {
         return 0
     fi
 
+    # Port already taken by another process (e.g. a sibling devcontainer/docker
+    # script also pointing at this port to share one upstream tinyproxy)?
+    # Reuse it rather than failing — both sides are expected to use the same
+    # allowlist file, so the filter set is identical. _FIREWALL_PID stays
+    # empty so firewall_stop won't try to kill someone else's process.
+    if nc -z 127.0.0.1 "$FIREWALL_PORT" 2>/dev/null; then
+        info "Firewall: reusing existing proxy on :${FIREWALL_PORT}"
+        return 0
+    fi
+
     mkdir -p "$FIREWALL_DIR"
 
     # Resolve domain list — use built-in defaults if none specified
