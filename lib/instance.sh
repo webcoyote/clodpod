@@ -50,6 +50,52 @@ get_vm_ip_or_abort() {
 # Wraps in single quotes, escaping any embedded single quotes.
 ssh_quote_env() { printf "%s='%s'" "$1" "${2//\'/\'\\\'\'}"; }
 
+# Configure macOS system proxy via networksetup over SSH. NSURLSession-backed
+# tools (xcodebuild's SwiftPM, system frameworks, anything via CFNetwork) read
+# proxy settings from CFNetworkCopySystemProxySettings(), NOT from HTTP_PROXY
+# env vars. Without this, those tools bypass tinyproxy entirely and either hit
+# the softnet block (timeouts) or fail to reach allowed hosts.
+#
+# Sets system web/secure-web proxy when $proxy_url is non-empty; disables both
+# when empty (so a no-firewall session after a firewall session doesn't inherit
+# stale settings).
+#
+# Requires NOPASSWD sudo for `networksetup` on the VM — provided by
+# ALLOW_SUDO=true at build-base time.
+vm_apply_system_proxy() {
+    local ssh_user="$1"
+    local ipaddr="$2"
+    local proxy_url="$3"
+    local host="" port=""
+
+    if [[ -n "$proxy_url" ]]; then
+        host="${proxy_url#http://}"
+        port="${host##*:}"
+        host="${host%:*}"
+    fi
+
+    ssh -q \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o IdentitiesOnly=yes \
+        -i "$SSH_KEYFILE_PRIV" \
+        "$ssh_user@$ipaddr" \
+        "PROXY_HOST='$host' PROXY_PORT='$port' bash -s" <<'REMOTE' || warn "system proxy: networksetup call failed (continuing — NSURLSession-backed tools may bypass the firewall)"
+set -e
+# First non-disabled network service (Tart VMs typically have one "Ethernet").
+svc=$(networksetup -listallnetworkservices 2>/dev/null | grep -v '^An asterisk' | grep -v '^\*' | head -1)
+[ -z "$svc" ] && exit 0
+if [ -n "$PROXY_HOST" ]; then
+    sudo -n networksetup -setwebproxy           "$svc" "$PROXY_HOST" "$PROXY_PORT" >/dev/null
+    sudo -n networksetup -setsecurewebproxy     "$svc" "$PROXY_HOST" "$PROXY_PORT" >/dev/null
+    sudo -n networksetup -setproxybypassdomains "$svc" localhost 127.0.0.1 '*.local' >/dev/null
+else
+    sudo -n networksetup -setwebproxystate       "$svc" off >/dev/null 2>&1 || true
+    sudo -n networksetup -setsecurewebproxystate "$svc" off >/dev/null 2>&1 || true
+fi
+REMOTE
+}
+
 ssh_into_vm() {
     local vm_name="$1"
     local ssh_user="${2:-admin}"
@@ -84,8 +130,8 @@ ssh_into_vm() {
     # Build proxy env vars when firewall is active.
     # Detect gateway now — bridge100 is up after VM boot.
     local proxy_env=()
+    local proxy_url=""
     if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
-        local proxy_url
         proxy_url="$(firewall_proxy_url)"
         debug "firewall: proxy_url=$proxy_url (gateway=$(firewall_detect_gateway))"
         proxy_env+=(
@@ -97,6 +143,10 @@ ssh_into_vm() {
             "no_proxy=localhost,127.0.0.1,.local"
         )
     fi
+
+    # Apply (or clear) macOS system proxy. Required for NSURLSession-backed
+    # tools — see vm_apply_system_proxy for details. Empty $proxy_url disables.
+    vm_apply_system_proxy "$ssh_user" "$ipaddr" "$proxy_url"
 
     ssh \
         -q \
