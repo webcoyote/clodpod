@@ -83,14 +83,25 @@ vm_apply_system_proxy() {
         "$ssh_user@$ipaddr" \
         "PROXY_HOST='$host' PROXY_PORT='$port' bash -s" <<'REMOTE' 2>&1
 set -e
-# First non-disabled network service (Tart VMs typically have one "Ethernet").
-svc=$(networksetup -listallnetworkservices 2>/dev/null | grep -v '^An asterisk' | grep -v '^\*' | head -1)
-if [ -z "$svc" ]; then
-    echo "ERROR: networksetup -listallnetworkservices returned no services" >&2
-    networksetup -listallnetworkservices >&2 || true
+# Pick the network service whose Device matches the default-route interface.
+# A plain "first non-disabled service" picks up virtual ports (e.g.
+# com.redhat.spice.0 from SPICE virtio) that don't carry VM traffic, so the
+# proxy gets set on an interface NSURLSession never uses.
+default_dev=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+if [ -z "$default_dev" ]; then
+    echo "ERROR: no default route — VM networking is down" >&2
     exit 1
 fi
-echo "system proxy: service=$svc"
+svc=$(networksetup -listnetworkserviceorder 2>/dev/null | awk -v dev="$default_dev" '
+    /^\([0-9]+\)/ { name=$0; sub(/^\([0-9]+\) /, "", name); next }
+    /Device:/ && index($0, "Device: " dev ")") { print name; exit }
+')
+if [ -z "$svc" ]; then
+    echo "ERROR: no networksetup service maps to default-route device $default_dev" >&2
+    networksetup -listnetworkserviceorder >&2 || true
+    exit 1
+fi
+echo "system proxy: service=$svc (device=$default_dev)"
 if [ -n "$PROXY_HOST" ]; then
     sudo -n networksetup -setwebproxy           "$svc" "$PROXY_HOST" "$PROXY_PORT"
     sudo -n networksetup -setsecurewebproxy     "$svc" "$PROXY_HOST" "$PROXY_PORT"
