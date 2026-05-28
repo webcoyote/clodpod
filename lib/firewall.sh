@@ -91,12 +91,9 @@ firewall_start() {
 .anthropic.com
 DEFAULT_DOMAINS
     else
-        # Resolve to absolute path
-        if [[ "$domains_input" = /* ]]; then
-            domains_file="$domains_input"
-        else
-            domains_file="$(cd "$(dirname "$domains_input")" 2>/dev/null && echo "$(pwd)/$(basename "$domains_input")")"
-        fi
+        # resolve_physical_path returns nonzero when the path doesn't exist;
+        # || true lets the not-found check below produce the user-facing error.
+        domains_file="$(resolve_physical_path "$domains_input" 2>/dev/null || true)"
         if [[ ! -f "$domains_file" ]]; then
             abort "Firewall domains file not found: $domains_input"
         fi
