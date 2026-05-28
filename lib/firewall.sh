@@ -195,7 +195,10 @@ firewall_stop() {
 # Falls back to the softnet constant if bridge100 isn't up yet.
 firewall_detect_gateway() {
     local ip
-    ip="$(ifconfig bridge100 2>/dev/null | awk '/inet /{print $2}')"
+    # exit after first match: a bridge with multiple inet addresses (aliases,
+    # post-recycle state) would otherwise produce a newline-separated list
+    # that turns firewall_proxy_url's output into a malformed URL.
+    ip="$(ifconfig bridge100 2>/dev/null | awk '/inet /{print $2; exit}')"
     if [[ -n "$ip" ]]; then
         echo "$ip"
     else
