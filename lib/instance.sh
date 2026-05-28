@@ -357,7 +357,10 @@ vm_shell() {
             fi
         fi
         if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
-            warn "$instance_name is already running — softnet isolation requires restart. Run: clod stop $instance_name"
+            # Continuing here would inject HTTP(S)_PROXY env vars and apply the
+            # macOS system proxy without softnet isolation — a partial firewall
+            # that gives a false sense of security. Force a clean restart.
+            abort "$instance_name is already running — softnet isolation requires restart. Run: clod stop $instance_name"
         fi
     else
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
