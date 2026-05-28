@@ -172,7 +172,14 @@ TINYPROXY_CONF
 }
 
 firewall_stop() {
-    if [[ -n "${_FIREWALL_PID:-}" ]] && kill -0 "$_FIREWALL_PID" 2>/dev/null; then
+    # If _FIREWALL_PID is empty we reused a sibling clod's tinyproxy via the
+    # port-in-use path in firewall_start. That sibling still owns the config,
+    # filter, and log under FIREWALL_DIR — wiping the dir would yank its
+    # filter file out from under it. Leave both the process and the dir alone.
+    if [[ -z "${_FIREWALL_PID:-}" ]]; then
+        return 0
+    fi
+    if kill -0 "$_FIREWALL_PID" 2>/dev/null; then
         kill "$_FIREWALL_PID" 2>/dev/null || true
         wait "$_FIREWALL_PID" 2>/dev/null || true
         info "Firewall: proxy stopped"
