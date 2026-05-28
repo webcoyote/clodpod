@@ -102,9 +102,11 @@ DEFAULT_DOMAINS
         fi
     fi
 
-    # Strip comments and blank lines
+    # Strip comments and blank lines. Use [[:space:]] not \s — \s is a GNU
+    # grep extension and matches the literal two-char string on classic BSD
+    # grep, which would leak comment/blank lines into the filter.
     local clean_domains="$FIREWALL_DIR/domains-clean.txt"
-    grep -v '^\s*#' "$domains_file" | grep -v '^\s*$' > "$clean_domains"
+    grep -v '^[[:space:]]*#' "$domains_file" | grep -v '^[[:space:]]*$' > "$clean_domains"
 
     if [[ ! -s "$clean_domains" ]]; then
         abort "Firewall domains file is empty (after stripping comments): $domains_input"
