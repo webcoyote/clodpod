@@ -70,12 +70,6 @@ firewall_start() {
 
     firewall_ensure_proxy
 
-    # Already running?
-    if [[ -n "$_FIREWALL_PID" ]] && kill -0 "$_FIREWALL_PID" 2>/dev/null; then
-        debug "firewall: proxy already running (pid $_FIREWALL_PID)"
-        return 0
-    fi
-
     # Port already taken by another process (e.g. a sibling devcontainer/docker
     # script also pointing at this port to share one upstream tinyproxy)?
     # Reuse it rather than failing — both sides are expected to use the same
