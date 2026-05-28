@@ -5,4 +5,6 @@
 export PATH="$HOME/.local/bin:$PATH"
 
 # Load user configuration
-[[ -f "$HOME/user/.zprofile" ]] && source "$HOME/user/.zprofile"
+if [[ -f "$HOME/user/.zprofile" ]]; then
+    source "$HOME/user/.zprofile"
+fi

@@ -2,4 +2,6 @@
 [[ -r "$PWD" ]] || cd "$HOME"
 
 # Load user configuration
-[[ -f "$HOME/user/.zshenv" ]] && source "$HOME/user/.zshenv"
+if [[ -f "$HOME/user/.zshenv" ]]; then
+    source "$HOME/user/.zshenv"
+fi

@@ -2,4 +2,6 @@
 [[ -r "$PWD" ]] || cd "$HOME"
 
 # Load user configuration
-[[ -f "$HOME/user/.zlogin" ]] && source "$HOME/user/.zlogin"
+if [[ -f "$HOME/user/.zlogin" ]]; then
+    source "$HOME/user/.zlogin"
+fi

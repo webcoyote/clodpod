@@ -2,4 +2,6 @@
 [[ -r "$PWD" ]] || cd "$HOME"
 
 # Load user configuration
-[[ -f "$HOME/user/.zlogout" ]] && source "$HOME/user/.zlogout"
+if [[ -f "$HOME/user/.zlogout" ]]; then
+    source "$HOME/user/.zlogout"
+fi
