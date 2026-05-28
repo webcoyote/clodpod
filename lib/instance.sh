@@ -176,6 +176,11 @@ ssh_into_vm() {
     # tools — see vm_apply_system_proxy for details. Empty $proxy_url disables.
     vm_apply_system_proxy "$ssh_user" "$ipaddr" "$proxy_url"
 
+    # Suppress set -e / ERR trap for the ssh call so a non-zero shell exit
+    # (e.g. user's last command failed before Ctrl-D, zlogout returned non-zero)
+    # doesn't print the ERR-trap diagnostic. Still propagate the real exit
+    # code via `exit "$ssh_rc"` — EXIT traps (firewall_stop) fire regardless.
+    local ssh_rc=0
     ssh \
         -q \
         -tt \
@@ -193,7 +198,8 @@ ssh_into_vm() {
             "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
             "COMMAND_ARGS_B64=$command_args_b64" \
             ${proxy_env[@]+"${proxy_env[@]}"} \
-            zsh --login
+            zsh --login || ssh_rc=$?
+    exit "$ssh_rc"
 }
 
 vm_sync_authorized_key() {
