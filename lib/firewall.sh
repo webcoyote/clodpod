@@ -37,6 +37,26 @@ firewall_ensure_proxy() {
     command -v tinyproxy &>/dev/null || abort "Firewall: tinyproxy install failed"
 }
 
+# Softnet requires its binary to be SUID root. On first run it prompts for a
+# sudo password to set the SUID bit, but tart run is invoked with stdin
+# redirected from /dev/null (vm.sh), so the prompt receives EOF and tart
+# hangs until our wait_vm_running 20s timeout fires. Catch this up front
+# with a clearer error.
+firewall_ensure_softnet_suid() {
+    local softnet_bin
+    softnet_bin="$(command -v softnet 2>/dev/null)"
+    [[ -n "$softnet_bin" ]] || abort "Firewall: softnet binary not found (expected via tart's brew formula)"
+
+    # BSD stat (always present at /usr/bin/stat on macOS) — GNU coreutils may
+    # shadow `stat` in PATH and interprets -f differently. %Mp = upper-octal
+    # mode bits (file type + setuid/setgid/sticky); the 4 bit is setuid.
+    local mode
+    mode="$(/usr/bin/stat -L -f '%Mp' "$softnet_bin" 2>/dev/null)" || abort "Firewall: cannot stat $softnet_bin"
+    if (( (mode & 4) == 0 )); then
+        abort "Firewall: $softnet_bin is not SUID. Run \`sudo chmod u+s $softnet_bin\` (or run \`tart run --net-softnet ...\` once interactively so softnet prompts for the password) then retry."
+    fi
+}
+
 # Convert domain allowlist to tinyproxy filter regex.
 # Input:  one domain per line, leading dot = match subdomains.
 # Output: regex per line for tinyproxy's Filter file.
@@ -69,6 +89,7 @@ firewall_start() {
     local domains_input="${1:-}"
 
     firewall_ensure_proxy
+    firewall_ensure_softnet_suid
 
     # Port already taken by another process (e.g. a sibling devcontainer/docker
     # script also pointing at this port to share one upstream tinyproxy)?
@@ -206,8 +227,11 @@ firewall_proxy_url() {
 }
 
 # Softnet flags for tart run — block all, allow only gateway.
+# --net-softnet enables softnet isolation (without it, --net-softnet-block /
+# --net-softnet-allow are rejected by tart and the VM fails to start).
 # Uses the fixed softnet gateway since bridge100 doesn't exist until tart starts.
 firewall_softnet_args() {
+    echo "--net-softnet"
     echo "--net-softnet-block=0.0.0.0/0"
     echo "--net-softnet-allow=${FIREWALL_SOFTNET_GATEWAY}/32"
 }
