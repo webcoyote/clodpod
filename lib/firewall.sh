@@ -146,6 +146,9 @@ ConnectPort 22
 Filter "${filter_file}"
 FilterDefaultDeny Yes
 FilterType ere
+# DNS names are case-insensitive (RFC 4343). Without this, a CONNECT to
+# GITHUB.COM:443 bypasses an allowlist entry of github.com.
+FilterCaseSensitive No
 TINYPROXY_CONF
 
     # Run in foreground as background job
