@@ -82,6 +82,7 @@ the updated packages. Recreate to pick up changes: clod destroy + create.
 
 Global options:
   --graphics/--no-graphics      VM display mode (default: graphics)
+  --forward-port PORT           Reverse-forward host port into VM (repeatable)
   --rebuild-oci                 Re-download OCI image (Layer 0)
   --rebuild-base                Rebuild base from OCI (Layer 1, rebuilds xcode VM too)
   --allow-sudo/--no-allow-sudo  Passwordless sudo in VM
@@ -233,6 +234,7 @@ Examples:
   clod shell                    # connect to the default 'xcode' instance
   clod shell dev
   clod shell dev --ram 12G
+  clod --forward-port 8080 shell dev
   clod shell dev -- claude --dangerously-skip-permissions
 EOF
 }

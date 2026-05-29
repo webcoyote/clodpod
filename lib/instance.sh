@@ -63,6 +63,17 @@ ssh_into_vm() {
 
     command_args_b64="$(encode_command_args)"
 
+    local forward_args=()
+    local port
+    for port in ${FORWARD_PORTS[@]+"${FORWARD_PORTS[@]}"}; do
+        forward_args+=("-R" "${port}:127.0.0.1:${port}")
+    done
+    if [[ -n "${CLOD_FORWARD_PORTS:-}" ]]; then
+        for port in ${CLOD_FORWARD_PORTS//,/ }; do
+            forward_args+=("-R" "${port}:127.0.0.1:${port}")
+        done
+    fi
+
     ssh \
         -q \
         -tt \
@@ -70,6 +81,7 @@ ssh_into_vm() {
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
+        ${forward_args[@]+"${forward_args[@]}"} \
         "$ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
