@@ -63,7 +63,7 @@ ssh_into_vm() {
 
     command_args_b64="$(encode_command_args)"
 
-    exec ssh \
+    ssh \
         -q \
         -tt \
         -o StrictHostKeyChecking=no \
@@ -78,7 +78,7 @@ ssh_into_vm() {
             "$(ssh_quote_env INITIAL_DIR "$initial_dir")" \
             "$(ssh_quote_env COMMAND "${COMMAND:-}")" \
             "COMMAND_ARGS_B64=$command_args_b64" \
-            zsh --login || true
+            zsh --login
 }
 
 vm_sync_authorized_key() {
