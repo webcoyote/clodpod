@@ -94,6 +94,12 @@ or worktree branches. Each is a cheap APFS CoW clone of the base VM.
     # List named VMs
     clod list
 
+    # Add or replace a mount on an existing instance
+    clod set --dir data:/Volumes/data myproject
+
+    # Remove a mount
+    clod set --dir-remove data myproject
+
     # Clean up
     clod destroy myproject
     clod destroy --all

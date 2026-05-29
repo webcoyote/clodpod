@@ -71,7 +71,7 @@ Describe 'per-command help'
 
     It 'show_help_set shows all set options'
         When call show_help_set
-        The output should include "--ram SIZE NAME"
+        The output should include "--ram SIZE"
         The output should include "--max-memory"
         The output should include "--vm-count"
     End

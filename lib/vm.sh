@@ -28,6 +28,16 @@ vm_validate_name() {
     fi
 }
 
+# Parse "name:path" → echoes "name|path", exit 1 on invalid input.
+parse_dir_spec() {
+    local spec="$1"
+    [[ "$spec" == *:* ]] || return 1
+    local name="${spec%%:*}"
+    local path="${spec#*:}"
+    [[ -n "$name" && -n "$path" ]] || return 1
+    printf '%s|%s\n' "$name" "$path"
+}
+
 parse_ram_size() {
     local input="${1:-}"
     local value

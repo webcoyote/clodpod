@@ -451,19 +451,18 @@ vm_set() {
     local ram_name=""
     local max_memory_value=""
     local vm_count_value=""
+    local dir_value=""
+    local dir_name_target=""
+    local dir_remove_value=""
+    local dir_remove_target=""
 
+    local _instance_name=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --ram)
                 [[ $# -ge 2 ]] || abort "Usage: clod set --ram <size|default> <name>"
                 ram_value="$2"
                 shift 2
-                if [[ $# -ge 1 ]] && [[ "$1" != -* ]]; then
-                    ram_name="$1"
-                    shift
-                else
-                    abort "Usage: clod set --ram <size|default> <name>"
-                fi
                 ;;
             --max-memory)
                 [[ $# -ge 2 ]] || abort "Usage: clod set --max-memory <size|default>"
@@ -475,11 +474,89 @@ vm_set() {
                 vm_count_value="$2"
                 shift 2
                 ;;
-            *)
+            --dir)
+                [[ -z "$dir_value" && -z "$dir_remove_value" ]] || abort "Error: only one --dir operation allowed per command"
+                [[ $# -ge 2 ]] || abort "Usage: clod set --dir name:path <name>"
+                dir_value="$2"
+                shift 2
+                ;;
+            --dir-remove)
+                [[ -z "$dir_value" && -z "$dir_remove_value" ]] || abort "Error: only one --dir operation allowed per command"
+                [[ $# -ge 2 ]] || abort "Usage: clod set --dir-remove <dir_name> <name>"
+                dir_remove_value="$2"
+                shift 2
+                ;;
+            -*)
                 abort "Error: unknown set option ($1)"
+                ;;
+            *)
+                [[ -z "$_instance_name" ]] || abort "Error: multiple instance names ($1 vs $_instance_name)"
+                _instance_name="$1"
+                shift
                 ;;
         esac
     done
+
+    if [[ -n "$ram_value" ]] || [[ -n "$dir_value" ]] || [[ -n "$dir_remove_value" ]]; then
+        [[ -n "$_instance_name" ]] || abort "Error: instance name required"
+        ram_name="$_instance_name"
+        dir_name_target="$_instance_name"
+        dir_remove_target="$_instance_name"
+    fi
+
+    if [[ -n "$dir_value" ]]; then
+        vm_instance_exists "$dir_name_target" || abort "Error: instance not found ($dir_name_target)"
+
+        local parsed
+        parsed="$(parse_dir_spec "$dir_value")" || abort "Error: invalid --dir value ($dir_value)"
+
+        local dir_name="${parsed%%|*}"
+        local dir_path_spec="${parsed#*|}"
+
+        [[ "$dir_name" != "__install" ]] || abort "Error: reserved directory name (__install)"
+
+        local dir_path
+        dir_path="$(resolve_physical_path "$dir_path_spec" 2>/dev/null || true)"
+        [[ -d "$dir_path" ]] || abort "Error: directory not found ($dir_path_spec)"
+
+        local existing_primary
+        existing_primary="$(sqlite3 "$DB_FILE" "SELECT is_primary FROM instance_dirs WHERE instance_name = '$(sql_escape "$dir_name_target")' AND dir_name = '$(sql_escape "$dir_name")';")"
+        local is_primary="${existing_primary:-0}"
+        local existed=""
+        [[ -n "$existing_primary" ]] && existed="(replaced)"
+
+        sqlite3 "$DB_FILE" "INSERT OR REPLACE INTO instance_dirs (instance_name, dir_name, dir_path, is_primary) VALUES ('$(sql_escape "$dir_name_target")', '$(sql_escape "$dir_name")', '$(sql_escape "$dir_path")', $is_primary);" || abort "Error: failed to write mount to database"
+        info "Set --dir ${dir_name} for ${dir_name_target}${existed:+ $existed}"
+
+        local vm_name
+        vm_name="$(vm_get_instance_vm_name "$dir_name_target")"
+        if [[ -n "$vm_name" ]] && [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+            warn "Instance $dir_name_target is running — change takes effect on next launch"
+        fi
+    fi
+
+    if [[ -n "$dir_remove_value" ]]; then
+        vm_instance_exists "$dir_remove_target" || abort "Error: instance not found ($dir_remove_target)"
+
+        local row_primary
+        row_primary="$(sqlite3 "$DB_FILE" "SELECT is_primary FROM instance_dirs WHERE instance_name = '$(sql_escape "$dir_remove_target")' AND dir_name = '$(sql_escape "$dir_remove_value")';")"
+
+        if [[ -z "$row_primary" ]]; then
+            abort "Error: directory '$dir_remove_value' not found on $dir_remove_target"
+        else
+            if [[ "$row_primary" -eq 1 ]]; then
+                abort "Cannot remove primary directory '$dir_remove_value' from $dir_remove_target. Destroy and recreate the instance instead."
+            fi
+            sqlite3 "$DB_FILE" "DELETE FROM instance_dirs WHERE instance_name = '$(sql_escape "$dir_remove_target")' AND dir_name = '$(sql_escape "$dir_remove_value")';" || abort "Error: failed to remove mount from database"
+            info "Removed --dir ${dir_remove_value} from ${dir_remove_target}"
+
+            local vm_name
+            vm_name="$(vm_get_instance_vm_name "$dir_remove_target")"
+            if [[ -n "$vm_name" ]] && [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+                warn "Instance $dir_remove_target is running — change takes effect on next launch"
+            fi
+        fi
+    fi
 
     if [[ -n "$ram_value" ]]; then
         [[ -n "$ram_name" ]] || abort "Usage: clod set --ram <size|default> <name>"
@@ -550,8 +627,8 @@ vm_set() {
         fi
     fi
 
-    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]] && [[ -z "$vm_count_value" ]]; then
-        abort "Usage: clod set [--ram <size|default> <name>] [--max-memory <size|default>] [--vm-count <N|default>]"
+    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]] && [[ -z "$vm_count_value" ]] && [[ -z "$dir_value" ]] && [[ -z "$dir_remove_value" ]]; then
+        abort "Usage: clod set [options] [NAME]. Run 'clod help set' for details."
     fi
 }
 
@@ -678,14 +755,12 @@ vm_create() {
             --dir)
                 [[ $# -ge 2 ]] || abort "Error: --dir requires name:path"
 
-                local dir_spec="$2"
+                local parsed
+                parsed="$(parse_dir_spec "$2")" || abort "Error: invalid --dir value ($2)"
                 shift 2
 
-                [[ "$dir_spec" == *:* ]] || abort "Error: invalid --dir value ($dir_spec)"
-                local dir_name="${dir_spec%%:*}"
-                local dir_path_spec="${dir_spec#*:}"
-                [[ -n "$dir_name" ]] || abort "Error: missing directory name in --dir"
-                [[ -n "$dir_path_spec" ]] || abort "Error: missing directory path in --dir"
+                local dir_name="${parsed%%|*}"
+                local dir_path_spec="${parsed#*|}"
                 [[ "$dir_name" != "__install" ]] || abort "Error: reserved directory name (__install)"
                 if array_contains "$dir_name" ${dir_names[@]+"${dir_names[@]}"}; then
                     abort "Error: duplicate --dir name ($dir_name)"
