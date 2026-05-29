@@ -56,7 +56,6 @@ init_config() {
     VERSION="1.0.22"
     OCI_VM_NAME="clodpod-oci-${MACOS_VERSION}-${MACOS_FLAVOR}"
     BASE_VM_NAME="clodpod-base-default"
-    DST_VM_NAME="clodpod-xcode"
     DATA_DIR="$HOME/.local/share/clodpod"
     OLD_DB_FILE="$WORKSPACE/.clodpod.sqlite"
     DB_FILE="$(resolve_db_file)"
@@ -97,6 +96,20 @@ migrate_vm_names() {
             local oci_source="${MACOS_VERSION}-${MACOS_FLAVOR}"
             base_register "default" "$BASE_VM_NAME" "$oci_source"
             debug "Registered existing base in database"
+        fi
+    fi
+
+    # Unify legacy DST VM as the 'xcode' named instance. Preserves the
+    # historical ssh_user (clodpod for pre-admin VMs, admin for newer ones).
+    if tart list --quiet 2>/dev/null | grep -q "^clodpod-xcode$"; then
+        if ! vm_instance_exists "xcode"; then
+            local dst_ssh_user
+            dst_ssh_user="$(get_setting "dst_ssh_user" "clodpod")"
+            sqlite3 "$DB_FILE" <<EOF
+INSERT INTO instances (name, vm_name, ram_mb, base_name, ssh_user, created_at)
+VALUES ('xcode', 'clodpod-xcode', NULL, 'default', '$(sql_escape "$dst_ssh_user")', datetime('now'));
+EOF
+            info "Migrated legacy VM to instance 'xcode'"
         fi
     fi
 }

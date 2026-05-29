@@ -83,8 +83,7 @@ the updated packages. Recreate to pick up changes: clod destroy + create.
 Global options:
   --graphics/--no-graphics      VM display mode (default: graphics)
   --rebuild-oci                 Re-download OCI image (Layer 0)
-  --rebuild-base                Rebuild base from OCI (Layer 1)
-  --rebuild-dst                 Rebuild legacy VM home (Layer 2)
+  --rebuild-base                Rebuild base from OCI (Layer 1, rebuilds xcode VM too)
   --allow-sudo/--no-allow-sudo  Passwordless sudo in VM
   -n, --no-select               Skip interactive project selection
   -v/-vv/-vvv                   Verbosity
@@ -223,18 +222,18 @@ show_help_shell() {
     cat <<'EOF'
 Usage: clod shell [NAME] [--ram SIZE] [-- command...]
 
-Open a shell in a named VM instance, or use legacy project-based flow.
+Open a shell in a VM instance.
 
 Arguments:
-  NAME                  Instance name (omit for auto-select if only one exists)
-  --ram SIZE            Override RAM for this session (e.g. 8G). Named VMs only.
+  NAME                  Instance name (omit to target the default 'xcode' instance)
+  --ram SIZE            Override RAM for this session (e.g. 8G)
   -- command...         Run command instead of interactive shell
 
 Examples:
+  clod shell                    # connect to the default 'xcode' instance
   clod shell dev
   clod shell dev --ram 12G
   clod shell dev -- claude --dangerously-skip-permissions
-  clod shell                    # auto-selects if one instance exists
 EOF
 }
 
@@ -272,15 +271,16 @@ show_help_start() {
     cat <<'EOF'
 Usage: clod start [NAME]
 
-Start a named VM instance without connecting (no SSH session). Mounts the
+Start a VM instance without connecting (no SSH session). Mounts the
 instance's --dir mappings so a subsequent `clod shell <name>` reconnects
-without restarting. If only one instance exists, NAME can be omitted.
+without restarting. If NAME is omitted, starts the default 'xcode' instance
+(building it on first run).
 
 Use --no-graphics to start headless.
 
 Examples:
+  clod start                 # start the default 'xcode' instance
   clod start dev
-  clod start                 # auto-selects if one instance exists
   clod --no-graphics start dev
 EOF
 }
@@ -314,23 +314,23 @@ show_status() {
     local allow_sudo="${1:-false}"
     local oci_vm_state
     local base_vm_state
-    local dst_vm_state
+    local xcode_vm_state
     local stored_image
 
     oci_vm_state="$(get_vm_state "$OCI_VM_NAME")"
     base_vm_state="$(get_vm_state "$BASE_VM_NAME")"
-    dst_vm_state="$(get_vm_state "$DST_VM_NAME")"
+    xcode_vm_state="$(get_vm_state "clodpod-xcode")"
     stored_image="$(get_setting "oci_base_image" "")"
 
     [[ -n "$oci_vm_state" ]] || oci_vm_state="not created"
     [[ -n "$base_vm_state" ]] || base_vm_state="not created"
-    [[ -n "$dst_vm_state" ]] || dst_vm_state="not created"
+    [[ -n "$xcode_vm_state" ]] || xcode_vm_state="not created"
     [[ -n "$stored_image" ]] || stored_image="not recorded"
 
     echo "passwordless sudo: $allow_sudo"
     echo "layer0 vm: $oci_vm_state"
     echo "base vm: $base_vm_state"
-    echo "dst vm: $dst_vm_state"
+    echo "xcode vm: $xcode_vm_state"
     echo "stored image: $stored_image"
     echo "current image: $MACOS_IMAGE"
 }

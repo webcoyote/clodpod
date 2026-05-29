@@ -13,7 +13,6 @@ ensure_ssh_key() {
             -q \
             -C "clodpod-${USER}@${HOSTNAME}"
         SSH_KEY_CREATED=true
-        REBUILD_DST=true
         # Sync new key to all existing named VMs
         sync_ssh_key_to_all_instances
     fi
@@ -24,14 +23,6 @@ ensure_ssh_key() {
 sync_ssh_key_to_all_instances() {
     local instance_rows
     instance_rows="$(sqlite3 -separator '|' "$DB_FILE" "SELECT vm_name, COALESCE(ram_mb, 0), COALESCE(ssh_user, 'clodpod') FROM instances;" 2>/dev/null)" || true
-
-    # Also sync to legacy clodpod-xcode if it exists
-    if get_vm_exists "$DST_VM_NAME" && ! printf '%s\n' "$instance_rows" | grep -q "^${DST_VM_NAME}|"; then
-        local dst_ssh_user
-        dst_ssh_user="$(get_setting "dst_ssh_user" "clodpod")"
-        instance_rows="${instance_rows:+$instance_rows
-}${DST_VM_NAME}|0|${dst_ssh_user}"
-    fi
 
     [[ -n "$instance_rows" ]] || return 0
 

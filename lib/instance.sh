@@ -222,8 +222,21 @@ vm_shell() {
             current_ram="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
             warn "$instance_name is already running with ${current_ram} MB RAM. --ram override ignored for running VM."
         fi
+        # xcode reads dirs from the projects table; new projects need a restart
+        # to be mounted. Mirrors the legacy `check_projects_active` UX.
+        if [[ "$instance_name" == "xcode" ]] && ! check_projects_active; then
+            warn "New project directory added; virtual machine restart required"
+            read -p "$vm_name is running; restart it? (y/N)" -n 1 -r response
+            echo
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                stop_vm "$vm_name"
+                vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
+                [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+            fi
+        fi
     else
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
+        [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
     fi
 
     local ssh_user
@@ -301,6 +314,7 @@ vm_start_instance() {
 
     info "Starting instance $instance_name ($vm_name)"
     vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
+    [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
 }
 
 # Auto-select target by name, by sole instance, or abort. Mirrors the policy
@@ -406,12 +420,6 @@ vm_destroy() {
             vm_list
             abort "Multiple instances exist. Specify name: clod destroy <name>"
         else
-            # Fall through to legacy VM cleanup
-            if get_vm_exists "$DST_VM_NAME"; then
-                delete_vm "$DST_VM_NAME"
-                info "Deleted legacy VM $DST_VM_NAME"
-                return 0
-            fi
             abort "No instances to destroy"
         fi
     fi
@@ -528,11 +536,98 @@ vm_set() {
     fi
 }
 
+# Build the 'xcode' default instance from the default base. Mounts the
+# projects table during configure so post-install scripts see them, then
+# registers the instance row. Runs the base build first if needed.
+_vm_build_xcode_from_base() {
+    local final_vm_name="clodpod-xcode"
+
+    if get_vm_exists "$final_vm_name"; then
+        abort "Error: tart VM already exists outside the database ($final_vm_name)"
+    fi
+
+    local base_vm
+    base_vm="$(base_get_vm_name "default")"
+    if [[ -z "$base_vm" ]] || ! get_vm_exists "$base_vm"; then
+        abort "Error: default base missing. Run 'clod build-base' first."
+    fi
+
+    ALLOW_SUDO="${ALLOW_SUDO:-$(get_setting "allow_sudo" "false")}"
+
+    ensure_ssh_key
+    refresh_guest_home
+
+    TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
+    trap cleanup_tmp_vm EXIT
+
+    clone_vm "$base_vm" "$TMP_VM_NAME"
+
+    # Mount projects (so configure.sh sees them) plus __install for the script
+    local run_args=()
+    while IFS= read -r -d '' arg; do
+        run_args+=("$arg")
+    done < <(get_map_directories)
+    vm_run "$TMP_VM_NAME" 0 "" "${run_args[@]}"
+
+    trace "Running configure.sh..."
+    if ! tart exec -it "$TMP_VM_NAME" \
+        "/usr/bin/env" "VERBOSE=$VERBOSE" "ALLOW_SUDO=${ALLOW_SUDO:-false}" bash \
+        "/Volumes/My Shared Files/__install/configure.sh"; then
+        abort "configure.sh failed — xcode VM will not be saved"
+    fi
+
+    trace "Stopping $TMP_VM_NAME to flush directory service writes..."
+    stop_vm "$TMP_VM_NAME"
+
+    trace "Renaming $TMP_VM_NAME to $final_vm_name"
+    tart rename "$TMP_VM_NAME" "$final_vm_name"
+    TMP_VM_NAME=""
+
+    if ! sqlite3 "$DB_FILE" <<EOF
+INSERT INTO instances (name, vm_name, ram_mb, base_name, ssh_user, created_at)
+VALUES ('xcode', '$final_vm_name', NULL, 'default', 'admin', datetime('now'));
+EOF
+    then
+        warn "DB insert failed — removing VM $final_vm_name"
+        tart delete "$final_vm_name" 2>/dev/null || true
+        abort "Failed to record xcode instance"
+    fi
+
+    # Mark all projects as active after build
+    sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+
+    info "Built xcode instance"
+}
+
+# Ensure the 'xcode' default instance exists, building base + VM as needed.
+vm_ensure_xcode_instance() {
+    if vm_instance_exists "xcode"; then
+        return 0
+    fi
+
+    # Build the base if it doesn't exist (one-time, matches legacy first-run UX)
+    if ! get_vm_exists "$BASE_VM_NAME"; then
+        REBUILD_BASE=true
+        prepare_rebuilds
+        build_base_vm
+    fi
+
+    _vm_build_xcode_from_base
+}
+
 vm_create() {
     local instance_name="${1:-}"
     shift || true
 
     [[ -n "$instance_name" ]] || abort "Usage: clod create <name> [--dir name:path]..."
+
+    # 'xcode' is the auto-managed default instance. Mounts come from the
+    # projects table, not --dir. Create it implicitly via bare `clod`.
+    # This check beats vm_validate_name's generic 'reserved' message.
+    if [[ "$instance_name" == "xcode" ]]; then
+        abort "Error: 'xcode' is the default instance and is managed automatically. Use bare 'clod' or 'clod claude /path' to mount directories."
+    fi
+
     vm_validate_name "$instance_name"
 
     if vm_instance_exists "$instance_name"; then

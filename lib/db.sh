@@ -139,6 +139,19 @@ EOF
 
 vm_get_instance_dirs() {
     local instance_name="$1"
+    # The 'xcode' instance is the unified successor to the legacy DST VM:
+    # its mounts come from the projects table at launch time, not instance_dirs.
+    # Primary is the most-recently-added/selected project.
+    if [[ "$instance_name" == "xcode" ]]; then
+        sqlite3 -separator '|' "$DB_FILE" <<EOF
+SELECT name, path,
+       CASE WHEN rowid = (SELECT rowid FROM projects ORDER BY date_added DESC LIMIT 1)
+            THEN 1 ELSE 0 END AS is_primary
+FROM projects
+ORDER BY date_added DESC;
+EOF
+        return 0
+    fi
     sqlite3 -separator '|' "$DB_FILE" <<EOF
 SELECT dir_name, dir_path, is_primary
 FROM instance_dirs

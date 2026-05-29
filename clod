@@ -82,10 +82,6 @@ while [[ $# -gt 0 ]]; do
             REBUILD_OCI=true
             shift
             ;;
-        --rebuild-dst)
-            REBUILD_DST=true
-            shift
-            ;;
         --allow-sudo)
             ALLOW_SUDO=true
             shift
@@ -246,27 +242,17 @@ for arg in "$@"; do
                         ;;
                 esac
             done
-            # Dispatch: named instance, auto-select, or fall through to legacy
+            # Named target that matches an existing instance → connect to it.
+            # Anything else (path, project name, or no target) falls through
+            # to the unified bare flow, which targets xcode and lets project
+            # resolution handle paths/names.
             if [[ -n "$_shell_target" ]] && vm_instance_exists "$_shell_target"; then
                 SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_shell_target"
                 exit 0
             fi
-            if [[ -z "$_shell_target" ]]; then
-                _instance_count="$(vm_get_instance_count 2>/dev/null || echo 0)"
-                if [[ "${_instance_count:-0}" -eq 1 ]]; then
-                    _only_name="$(vm_get_only_instance_name)"
-                    SHELL_RAM_OVERRIDE="$_shell_ram" vm_shell "$_only_name"
-                    exit 0
-                elif [[ "${_instance_count:-0}" -gt 1 ]]; then
-                    vm_list
-                    abort "Multiple instances exist. Specify name: clod shell <name>"
-                fi
-            fi
-            # --ram not supported on legacy shell
-            if [[ -n "$_shell_ram" ]]; then
-                abort "Error: --ram is only supported with named VM shell"
-            fi
-            # Fall through to legacy: put args back for global parser
+            # Carry --ram into the bare flow via the env var vm_shell reads.
+            [[ -z "$_shell_ram" ]] || export SHELL_RAM_OVERRIDE="$_shell_ram"
+            # Reinject as `shell [target]` for the main parser
             set -- shell ${_shell_target:+"$_shell_target"}
             break
             ;;
@@ -341,10 +327,8 @@ case "${1:-}" in
         PROJECT_NAME="${3:-}"
         ;;
     start)
-        # Named-instance start: explicit name OR auto-select when exactly one
-        # instance exists. Fall through to legacy start only when no name was
-        # given AND no named instances exist (preserves --rebuild-* legacy flow).
-        if [[ -n "${2:-}" ]] || [[ "$(vm_get_instance_count 2>/dev/null || echo 0)" -gt 0 ]]; then
+        # Named target → start it. No name → start xcode (build if needed).
+        if [[ -n "${2:-}" ]]; then
             vm_start_dispatch "${2:-}"
             exit 0
         fi
@@ -382,10 +366,9 @@ case "${1:-}" in
         COMMAND=status
         ;;
     *)
-        # Handle the special case that user asked for rebuild but
-        # did not specify a command. We'd like to do something
-        # nicer than just exit
-        if [[ -z "${REBUILD_BASE:-}" ]] && [[ -z "${REBUILD_DST:-}" ]] && [[ -z "${REBUILD_OCI:-}" ]]; then
+        # Bare `clod` with no command: show help unless a rebuild flag was
+        # passed, in which case treat it as `clod start`.
+        if [[ -z "${REBUILD_BASE:-}" ]] && [[ -z "${REBUILD_OCI:-}" ]]; then
             show_help
             exit 0
         fi
@@ -472,20 +455,35 @@ fi
 info "Active project: $PROJECT_NAME ($PROJECT_DIR)"
 check_oci_provenance
 
-
 ensure_ssh_key
 ensure_guest_home
-determine_rebuilds
-prepare_rebuilds
-
-if [[ "${REBUILD_DST:-}" != "" ]]; then
-    refresh_guest_home
-fi
-
 configure_dhcp_lease
 
-TMP_VM_NAME="clodpod-tmp-$(openssl rand -hex 8)"
-build_base_vm
-build_dst_vm
+# --rebuild-base implies the xcode VM must also be rebuilt (it was cloned from
+# the old base). Destroy it so vm_ensure_xcode_instance rebuilds from the new
+# base after build_base_vm runs.
+if [[ -n "${REBUILD_BASE:-}" ]] && vm_instance_exists "xcode"; then
+    if [[ "$(get_vm_state "$(vm_get_instance_vm_name "xcode")")" == "running" ]]; then
+        read -p "xcode is running; restart-rebuild it? (y/N)" -n 1 -r response
+        echo
+        [[ "$response" =~ ^[Yy]$ ]] || exit 0
+    fi
+    vm_destroy_instance "xcode"
+fi
 
-legacy_start_and_connect
+# Rebuild OCI/base if requested (vm_ensure_xcode_instance handles bare first-run).
+if [[ -n "${REBUILD_OCI:-}" ]] || [[ -n "${REBUILD_BASE:-}" ]]; then
+    REBUILD_BASE=true
+    prepare_rebuilds
+    build_base_vm
+fi
+
+vm_ensure_xcode_instance
+
+if [[ "${COMMAND:-}" == "start" ]]; then
+    vm_start_instance "xcode"
+    info "clodpod VM running"
+    exit 0
+fi
+
+vm_shell "xcode"
