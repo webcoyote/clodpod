@@ -81,6 +81,11 @@ setup_workspace() {
         cp -R "$SCRIPT_DIR/../guest" "$TEST_WORKSPACE/guest"
     fi
 
+    # Copy lib/ so clod can source its modules
+    if [[ -d "$SCRIPT_DIR/../lib" ]]; then
+        cp -R "$SCRIPT_DIR/../lib" "$TEST_WORKSPACE/lib"
+    fi
+
     # Prevent install_tools from trying to install dependencies.
     create_stub brew
     create_stub netcat
@@ -141,6 +146,9 @@ reset_test_env() {
     chmod +x "$TEST_WORKSPACE/clod"
     if [[ -d "$SCRIPT_DIR/../guest" ]]; then
         cp -R "$SCRIPT_DIR/../guest" "$TEST_WORKSPACE/guest"
+    fi
+    if [[ -d "$SCRIPT_DIR/../lib" ]]; then
+        cp -R "$SCRIPT_DIR/../lib" "$TEST_WORKSPACE/lib"
     fi
 }
 
