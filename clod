@@ -51,6 +51,7 @@ migrate_vm_names
 NO_GRAPHICS="${NO_GRAPHICS:-}"
 SHOULD_SELECT_PROJECT=true
 ALLOW_SUDO=
+FORWARD_PORTS=()
 _pre_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -93,6 +94,14 @@ while [[ $# -gt 0 ]]; do
         -n|--no-select)
             SHOULD_SELECT_PROJECT=false
             shift
+            ;;
+        --forward-port)
+            [[ $# -ge 2 ]] || abort "Error: --forward-port requires a port number"
+            if ! [[ "$2" =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 65535 )); then
+                abort "Error: --forward-port requires a port in 1-65535 (got '$2')"
+            fi
+            FORWARD_PORTS+=("$2")
+            shift 2
             ;;
         --)
             _pre_args+=("$@")

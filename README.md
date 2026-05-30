@@ -124,6 +124,17 @@ per-instance RAM and the total budget:
     clod set --vm-count default
 
 
+## Port forwarding
+
+Forward host ports into the VM via SSH reverse tunnels so VM agents can
+reach host resources such as databases and local LLMs.
+
+    clod --forward-port 8080 --forward-port 3000 claude
+    CLOD_FORWARD_PORTS=8080,3000 clod shell dev    # env var alternative
+
+Both methods can be combined.
+
+
 ## macOS versions
 
 By default ClodPod uses the `ghcr.io/cirruslabs/macos-tahoe-xcode:latest` VM flavor, but this is configurable by setting the MACOS_VERSION and MACOS_FLAVOR environment variables when building the VM:

@@ -63,6 +63,24 @@ ssh_into_vm() {
 
     command_args_b64="$(encode_command_args)"
 
+    local forward_args=()
+    local port
+    if [[ "${#FORWARD_PORTS[@]}" -gt 0 ]]; then
+        for port in "${FORWARD_PORTS[@]}"; do
+            forward_args+=("-R" "${port}:127.0.0.1:${port}")
+        done
+    fi
+    if [[ -n "${CLOD_FORWARD_PORTS:-}" ]]; then
+        local _env_ports
+        IFS=',' read -ra _env_ports <<< "$CLOD_FORWARD_PORTS"
+        for port in "${_env_ports[@]}"; do
+            if ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+                abort "Error: CLOD_FORWARD_PORTS contains invalid port ('$port'); must be 1-65535"
+            fi
+            forward_args+=("-R" "${port}:127.0.0.1:${port}")
+        done
+    fi
+
     ssh \
         -q \
         -tt \
@@ -70,6 +88,7 @@ ssh_into_vm() {
         -o UserKnownHostsFile=/dev/null \
         -o IdentitiesOnly=yes \
         -i "$SSH_KEYFILE_PRIV" \
+        ${forward_args[@]+"${forward_args[@]}"} \
         "$ssh_user@$ipaddr" \
         /usr/bin/env \
             "TERM=xterm-256color" \
