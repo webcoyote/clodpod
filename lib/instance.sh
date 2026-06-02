@@ -36,12 +36,23 @@ get_vm_ip_or_abort() {
     debug "Checking $vm_name IP connectivity"
     local ipaddr
     ipaddr="$(tart ip --wait 20 "$vm_name")"
-    if ! nc -z "$ipaddr" 22 ; then
-        error "$(get_local_network_error "$vm_name")"
-        read -n 1 -s -r -p "Press any key to open System Settings"
-        open "/System/Library/PreferencePanes/Security.prefPane"
-        abort "Cannot connect to $vm_name at $ipaddr:22"
-    fi
+
+    # tart ip --wait returns once the guest has a DHCP lease, but sshd can
+    # take several more seconds to start listening after a cold boot. A
+    # single-shot nc -z races that gap and mis-reports it as a Local Network
+    # permission problem. Retry for ~15s before showing the permission hint —
+    # the real permission case fails fast on every attempt anyway.
+    local attempts=0
+    while ! nc -w 2 -z "$ipaddr" 22 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [[ $attempts -ge 15 ]]; then
+            error "$(get_local_network_error "$vm_name")"
+            read -n 1 -s -r -p "Press any key to open System Settings"
+            open "/System/Library/PreferencePanes/Security.prefPane"
+            abort "Cannot connect to $vm_name at $ipaddr:22"
+        fi
+        sleep 1
+    done
 
     echo "$ipaddr"
 }
