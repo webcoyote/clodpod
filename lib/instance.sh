@@ -362,11 +362,14 @@ vm_shell() {
                 [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
             fi
         fi
-        if [[ -n "${CLODPOD_FIREWALL:-}" ]]; then
-            # Continuing here would inject HTTP(S)_PROXY env vars and apply the
-            # macOS system proxy without softnet isolation — a partial firewall
-            # that gives a false sense of security. Force a clean restart.
-            abort "$instance_name is already running — softnet isolation requires restart. Run: clod stop $instance_name"
+        if [[ -n "${CLODPOD_FIREWALL:-}" ]] && ! firewall_vm_using_softnet "$vm_name"; then
+            # The running VM was started without softnet. Continuing here
+            # would inject HTTP(S)_PROXY env vars and apply the macOS system
+            # proxy without softnet isolation — a partial firewall that gives
+            # a false sense of security. Force a clean restart.
+            # (A VM already running *with* softnet is a safe reconnect —
+            # makes back-to-back `clod s --firewall` idempotent.)
+            abort "$instance_name is already running without softnet — firewall isolation requires restart. Run: clod stop $instance_name"
         fi
     else
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true

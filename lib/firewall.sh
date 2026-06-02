@@ -235,3 +235,16 @@ firewall_softnet_args() {
     echo "--net-softnet-block=0.0.0.0/0"
     echo "--net-softnet-allow=${FIREWALL_SOFTNET_GATEWAY}/32"
 }
+
+# Is the running tart process for $vm_name already using softnet isolation?
+# Used to make `clod s --firewall` re-entrant: if a prior --firewall session
+# left the VM running, we can safely reconnect rather than forcing a restart.
+# Without softnet, the proxy env vars alone are a false sense of security
+# (guest can route around them), so a restart is still required in that case.
+firewall_vm_using_softnet() {
+    local vm_name="$1"
+    # BSD pgrep -fl: -f matches full cmdline, -l prints it. Anchor on the
+    # trailing vm_name (last positional arg to `tart run`) to avoid matching
+    # an unrelated VM whose name is a prefix of this one.
+    pgrep -fl "tart run .* ${vm_name}\$" 2>/dev/null | grep -q -- '--net-softnet'
+}
