@@ -54,7 +54,7 @@ if ! git diff-index --quiet HEAD -- || [[ -n "$(git ls-files --others --exclude-
 fi
 
 # Get current version
-CURRENT_VERSION=$(awk -F'"' '/^\s*VERSION="[0-9.]*"/ {print $2; exit}' "$PROJECT_PATH")
+CURRENT_VERSION=$(awk -F'"' '/^[[:space:]]*VERSION="[0-9.]*"/ {print $2; exit}' "$PROJECT_PATH")
 echo "Current version: $CURRENT_VERSION"
 
 # Parse version components
