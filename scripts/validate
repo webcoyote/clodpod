@@ -1,0 +1,53 @@
+#!/bin/bash
+# Run both test suites: the bash integration runner and shellspec.
+# Exits non-zero if either fails. Reports both results.
+set -Eeuo pipefail
+trap 'echo >&2 "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+tests_status=0
+shellspec_status=0
+
+echo -e "${YELLOW}==> scripts/tests${NC}"
+if "$SCRIPT_DIR/tests"; then
+    tests_status=0
+else
+    tests_status=$?
+fi
+
+echo
+echo -e "${YELLOW}==> shellspec${NC}"
+if ! command -v shellspec &>/dev/null; then
+    echo -e "${RED}shellspec not found. Run scripts/setup to install it.${NC}" >&2
+    shellspec_status=127
+else
+    if shellspec; then
+        shellspec_status=0
+    else
+        shellspec_status=$?
+    fi
+fi
+
+echo
+echo "================ summary ================"
+if [[ "$tests_status" -eq 0 ]]; then
+    echo -e "scripts/tests: ${GREEN}PASS${NC}"
+else
+    echo -e "scripts/tests: ${RED}FAIL${NC} (exit $tests_status)"
+fi
+if [[ "$shellspec_status" -eq 0 ]]; then
+    echo -e "shellspec:     ${GREEN}PASS${NC}"
+else
+    echo -e "shellspec:     ${RED}FAIL${NC} (exit $shellspec_status)"
+fi
+
+if [[ "$tests_status" -ne 0 ]] || [[ "$shellspec_status" -ne 0 ]]; then
+    exit 1
+fi
