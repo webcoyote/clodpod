@@ -203,17 +203,25 @@ EOF
 
 show_help_set() {
     cat <<'EOF'
-Usage: clod set <option> [args]
+Usage: clod set [options] [NAME]
 
-Change VM and workspace settings.
+Change VM and workspace settings. Instance name is required for
+--ram, --dir, and --dir-remove. Options can be combined freely.
 
 Options:
-  --ram SIZE NAME       Set fixed RAM for an instance (e.g. 8G, 'default' to reset)
+  --ram SIZE            Set fixed RAM for an instance (e.g. 8G, 'default' to reset)
   --max-memory SIZE     Set workspace memory budget (e.g. 32G, 'default' for 5/8 host RAM)
   --vm-count N          Split budget across N VMs ('default' to reset to 1)
+  --dir name:path       Add or replace a mount on an existing instance
+  --dir-remove name     Remove a mount by name (primary mount cannot be removed)
+
+Mount changes take effect on next VM launch.
 
 Examples:
   clod set --ram 10G dev
+  clod set --dir code:/Users/me/src dev
+  clod set --dir code:/Users/me/src --ram 8G dev
+  clod set --dir-remove code dev
   clod set --max-memory 32G
   clod set --vm-count 3
 EOF
