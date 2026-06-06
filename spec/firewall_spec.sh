@@ -105,10 +105,11 @@ MOCK
     End
 
     Describe 'firewall_softnet_args'
-        It 'outputs block-all and allow-gateway flags'
+        It 'outputs softnet enable, block-all, and allow-gateway flags'
             When call firewall_softnet_args
-            The line 1 should eq "--net-softnet-block=0.0.0.0/0"
-            The line 2 should eq "--net-softnet-allow=192.168.2.1/32"
+            The line 1 should eq "--net-softnet"
+            The line 2 should eq "--net-softnet-block=0.0.0.0/0"
+            The line 3 should eq "--net-softnet-allow=192.168.2.1/32"
         End
     End
 

@@ -88,19 +88,8 @@ _domains_to_filter() {
 firewall_start() {
     local domains_input="${1:-}"
 
-    firewall_ensure_proxy
-    firewall_ensure_softnet_suid
-
-    # Port already taken by another process (e.g. a sibling devcontainer/docker
-    # script also pointing at this port to share one upstream tinyproxy)?
-    # Reuse it rather than failing — both sides are expected to use the same
-    # allowlist file, so the filter set is identical. _FIREWALL_PID stays
-    # empty so firewall_stop won't try to kill someone else's process.
-    if nc -z 127.0.0.1 "$FIREWALL_PORT" 2>/dev/null; then
-        info "Firewall: reusing existing proxy on :${FIREWALL_PORT}"
-        return 0
-    fi
-
+    # Validate domains input early — fail fast on bad input even if a proxy
+    # is already running on the port (caller made an error we shouldn't hide).
     mkdir -p "$FIREWALL_DIR"
 
     # Resolve domain list — use built-in defaults if none specified
@@ -128,6 +117,19 @@ DEFAULT_DOMAINS
 
     if [[ ! -s "$clean_domains" ]]; then
         abort "Firewall domains file is empty (after stripping comments): $domains_input"
+    fi
+
+    firewall_ensure_proxy
+    firewall_ensure_softnet_suid
+
+    # Port already taken by another process (e.g. a sibling devcontainer/docker
+    # script also pointing at this port to share one upstream tinyproxy)?
+    # Reuse it rather than failing — both sides are expected to use the same
+    # allowlist file, so the filter set is identical. _FIREWALL_PID stays
+    # empty so firewall_stop won't try to kill someone else's process.
+    if nc -z 127.0.0.1 "$FIREWALL_PORT" 2>/dev/null; then
+        info "Firewall: reusing existing proxy on :${FIREWALL_PORT}"
+        return 0
     fi
 
     # Convert to tinyproxy filter regex
