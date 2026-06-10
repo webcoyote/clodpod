@@ -119,6 +119,9 @@ Examples:
   clod create dev --dir project:/Users/me/src/app
   clod create dev --ram 8G --base custom --dir work:$(pwd)
   clod create worker --dir repo:$(pwd) --dir data:/Volumes/data
+
+Project Brewfiles (./Brewfile) are applied automatically at instance
+creation, and re-checked on each shell entry. See guest/home/README.md.
 EOF
 }
 
