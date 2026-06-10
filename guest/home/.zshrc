@@ -102,6 +102,12 @@ PROJECT="${PROJECT:-project}"
 PROJECT_DIR="$HOME/projects/$PROJECT"
 if [[ -d "$PROJECT_DIR" ]]; then
     cd "$PROJECT_DIR"
+    # Reconcile this project's Brewfile (cheap when satisfied; self-heals
+    # when the user adds the project via 'clod set --dir' or edits Brewfile).
+    if [[ -f "$HOME/lib/brewfile.sh" ]]; then
+        source "$HOME/lib/brewfile.sh"
+        apply_brewfile_if_present "$PROJECT_DIR"
+    fi
     # If INITIAL_DIR is set, navigate to the subdirectory within the project
     if [[ -n "${INITIAL_DIR:-}" ]] && [[ -d "$PROJECT_DIR/$INITIAL_DIR" ]]; then
         cd "$PROJECT_DIR/$INITIAL_DIR"
@@ -121,3 +127,4 @@ if [[ "${COMMAND:-}" != "" ]]; then
 elif [[ ${#command_args[@]} -gt 0 ]]; then
     exec "${command_args[@]}"
 fi
+
