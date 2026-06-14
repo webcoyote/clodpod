@@ -53,7 +53,7 @@ validate_config() {
 
 # shellcheck disable=SC2034,SC2154 # variables used/set by clod and other modules
 init_config() {
-    VERSION="1.0.23"
+    VERSION="1.0.24"
     OCI_VM_NAME="clodpod-oci-${MACOS_VERSION}-${MACOS_FLAVOR}"
     BASE_VM_NAME="clodpod-base-default"
     DATA_DIR="$HOME/.local/share/clodpod"
