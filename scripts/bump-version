@@ -12,8 +12,8 @@ show_usage() {
     cat << EOF
 Usage: bump-version [TYPE]
 
-Bump the version number, commit to a new branch, push, and open a PR.
-The tag is created automatically by CI when the PR merges to main.
+Bump the version number, commit to a new branch, push, and open a PR
+with auto-merge (squash) enabled. CI tags v<NEW> on merge to main.
 
 Arguments:
   TYPE        Version bump type: major, minor, or patch (default: patch)
@@ -101,6 +101,7 @@ git push -u origin "$BRANCH"
 
 # Tag is created by CI on merge to main — see .github/workflows/ci.yml
 gh pr create --fill --title "Bump version to $NEW_VERSION"
+gh pr merge --auto --squash --delete-branch
 
 echo "✓ Version bumped to $NEW_VERSION on branch $BRANCH"
-echo "✓ PR opened — merge once CI passes; tag will be created automatically"
+echo "✓ PR opened with auto-merge — squash-merges once CI passes; tag created automatically"
