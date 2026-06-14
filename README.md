@@ -166,6 +166,15 @@ Optional virtual machine configuration (example):
 
 To add custom configuration; see `./guest/home/README.md`.
 
+### Per-project Homebrew dependencies (Brewfile)
+
+If a mounted project contains a [Brewfile](https://docs.brew.sh/Brew-Bundle-and-Brewfile) at its root, ClodPod will reconcile it via `brew bundle` automatically:
+
+- **At instance creation** (`clod create`): every mounted project's Brewfile is applied.
+- **At every shell entry** (`clod claude`, `clod shell`, etc.): the active project's Brewfile is checked with `brew bundle check`; install only runs on drift, so steady-state cost is negligible.
+
+The default file is `./Brewfile`; override per-session by setting the standard `HOMEBREW_BUNDLE_FILE` env var. Install uses `--no-upgrade`, so pinned versions stay pinned. Failures emit a loud warning but never block the VM or shell from starting. ClodPod does not run `brew bundle cleanup` — removal stays a manual call.
+
 
 # Background
 

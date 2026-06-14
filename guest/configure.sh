@@ -85,6 +85,22 @@ sudo chown -R "admin:staff" "$(brew --prefix)"
 
 
 ###############################################################################
+# Apply project Brewfiles
+# Project mounts surface under /Volumes/My Shared Files/<name>. Each project
+# may ship a ./Brewfile; we reconcile it via 'brew bundle'. Failures warn
+# but never abort — a broken Brewfile must not stop the instance coming up.
+###############################################################################
+BREWFILE_LIB="/Users/admin/lib/brewfile.sh"
+SHARED_MOUNTS="/Volumes/My Shared Files"
+if [[ -f "$BREWFILE_LIB" ]] && [[ -d "$SHARED_MOUNTS" ]]; then
+    debug "Applying project Brewfiles..."
+    # shellcheck source=guest/home/lib/brewfile.sh
+    source "$BREWFILE_LIB"
+    apply_all_project_brewfiles "$SHARED_MOUNTS"
+fi
+
+
+###############################################################################
 # Finalize sudo configuration
 # configure.sh is the final authority on sudo state per-instance.
 # This handles base->instance inheritance: a base built with ALLOW_SUDO=true
