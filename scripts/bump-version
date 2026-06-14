@@ -12,7 +12,8 @@ show_usage() {
     cat << EOF
 Usage: bump-version [TYPE]
 
-Bump the version number, commit changes, create a tag, and push to remote.
+Bump the version number, commit to a new branch, push, and open a PR.
+The tag is created automatically by CI when the PR merges to main.
 
 Arguments:
   TYPE        Version bump type: major, minor, or patch (default: patch)
@@ -85,21 +86,21 @@ esac
 NEW_VERSION="$MAJOR.$MINOR.$PATCH"
 echo "New version: $NEW_VERSION"
 
+BRANCH="bump-version-$NEW_VERSION"
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    echo "Error: branch $BRANCH already exists locally"
+    exit 1
+fi
+
 # Update version
 sed -i '' "s/VERSION=\"$CURRENT_VERSION\"/VERSION=\"$NEW_VERSION\"/g" "$PROJECT_PATH"
 
-# Stage the changes
-git add -A
+git switch -c "$BRANCH"
+git commit -am "Bump version to $NEW_VERSION"
+git push -u origin "$BRANCH"
 
-# Commit with version message
-git commit -m "Bump version to $NEW_VERSION"
+# Tag is created by CI on merge to main — see .github/workflows/ci.yml
+gh pr create --fill --title "Bump version to $NEW_VERSION"
 
-# Create tag
-git tag -a "v$NEW_VERSION" -m "Version $NEW_VERSION"
-
-git push && git push --tags
-
-echo "✓ Version bumped to $NEW_VERSION"
-echo "✓ Changes committed"
-echo "✓ Tag v$NEW_VERSION created"
-echo "✓ Changes pushed"
+echo "✓ Version bumped to $NEW_VERSION on branch $BRANCH"
+echo "✓ PR opened — merge once CI passes; tag will be created automatically"
