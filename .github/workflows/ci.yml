@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install bash and shellspec
+        run: brew install bash shellspec
+
+      - name: Run tests
+        env:
+          VERBOSE: 1
+        run: ./scripts/validate
+
+  tag-version:
+    name: Tag Version
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.CLODPOD_TAG_TOKEN }}
+
+      - name: Tag version if updated
+        run: .github/scripts/tag-version
