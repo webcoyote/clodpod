@@ -35,6 +35,7 @@ source "$WORKSPACE/lib/vm.sh"
 source "$WORKSPACE/lib/ssh.sh"
 source "$WORKSPACE/lib/project.sh"
 source "$WORKSPACE/lib/instance.sh"
+source "$WORKSPACE/lib/firewall.sh"
 source "$WORKSPACE/lib/commands.sh"
 source "$WORKSPACE/lib/build.sh"
 
@@ -102,6 +103,14 @@ while [[ $# -gt 0 ]]; do
             fi
             FORWARD_PORTS+=("$2")
             shift 2
+            ;;
+        --firewall)
+            FIREWALL_DOMAINS="__default__"
+            shift
+            ;;
+        --firewall=*)
+            FIREWALL_DOMAINS="${1#--firewall=}"
+            shift
             ;;
         --)
             _pre_args+=("$@")
@@ -251,6 +260,12 @@ for arg in "$@"; do
                         ;;
                 esac
             done
+            # Start firewall proxy if requested (before VM boot)
+            if [[ -n "${FIREWALL_DOMAINS:-}" ]]; then
+                firewall_start "$FIREWALL_DOMAINS"
+                trap 'firewall_stop' EXIT
+                export CLODPOD_FIREWALL=1
+            fi
             # Named target that matches an existing instance → connect to it.
             # Anything else (path, project name, or no target) falls through
             # to the unified bare flow, which targets xcode and lets project

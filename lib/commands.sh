@@ -86,6 +86,7 @@ Global options:
   --rebuild-oci                 Re-download OCI image (Layer 0)
   --rebuild-base                Rebuild base from OCI (Layer 1, rebuilds xcode VM too)
   --allow-sudo/--no-allow-sudo  Passwordless sudo in VM
+  --firewall[=FILE]             Domain firewall (tinyproxy + softnet isolation)
   -n, --no-select               Skip interactive project selection
   -v/-vv/-vvv                   Verbosity
   -h, --help                    Show help
