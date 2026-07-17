@@ -334,10 +334,8 @@ run_vm () {
         return "$status"
     fi
 
-    # Mark all projects as active after virtual machine starts successfully
-    sqlite3 "$DB_FILE" <<EOF
-UPDATE projects SET active = 1;
-EOF
+    # Mark mounted projects as active after virtual machine starts successfully
+    mark_projects_active
 }
 
 stop_vm () {

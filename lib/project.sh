@@ -3,14 +3,39 @@
 # Project management: add, remove, list, select, directory mapping
 
 check_projects_active() {
-    # Returns 0 (success) if all projects are active, 1 otherwise
-    local inactive_count
-    inactive_count=$(sqlite3 "$DB_FILE" <<EOF
+    # Returns 0 (success) if the projects marked active match what the VM
+    # should mount, 1 otherwise. With isolation enabled only the primary
+    # (most recent) project should be active; otherwise all of them.
+    local stale_count
+    if [[ "$(get_setting "isolate_projects" "false")" == "true" ]]; then
+        stale_count=$(sqlite3 "$DB_FILE" <<EOF
+SELECT COUNT(*) FROM projects
+WHERE active != (CASE WHEN rowid = (SELECT rowid FROM projects ORDER BY date_added DESC LIMIT 1)
+                      THEN 1 ELSE 0 END);
+EOF
+)
+    else
+        stale_count=$(sqlite3 "$DB_FILE" <<EOF
 SELECT COUNT(*) FROM projects WHERE active = 0;
 EOF
 )
-    trace "Inactive projects: $inactive_count"
-    [[ "$inactive_count" -eq 0 ]]
+    fi
+    trace "Stale project mounts: $stale_count"
+    [[ "$stale_count" -eq 0 ]]
+}
+
+# Mark projects as mounted after the xcode VM starts: all of them, or only
+# the primary project when isolation is enabled.
+mark_projects_active() {
+    if [[ "$(get_setting "isolate_projects" "false")" == "true" ]]; then
+        sqlite3 "$DB_FILE" <<EOF
+UPDATE projects SET active = (rowid = (SELECT rowid FROM projects ORDER BY date_added DESC LIMIT 1));
+EOF
+    else
+        sqlite3 "$DB_FILE" <<EOF
+UPDATE projects SET active = 1;
+EOF
+    fi
 }
 
 add_project () {
@@ -304,8 +329,12 @@ EOF
 # Outputs NUL-delimited entries like: "--dir" NUL "name:path" NUL
 get_map_directories() {
     local result
+    local limit=""
+    if [[ "$(get_setting "isolate_projects" "false")" == "true" ]]; then
+        limit=" LIMIT 1"
+    fi
     result=$(sqlite3 -separator '|' "$DB_FILE" <<EOF || return 1
-SELECT name, path FROM projects ORDER BY date_added DESC;
+SELECT name, path FROM projects ORDER BY date_added DESC${limit};
 EOF
 )
 
