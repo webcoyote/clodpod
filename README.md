@@ -19,6 +19,7 @@ ClodPod virtual machines include Xcode and common development tools, and it's ea
 - Builds a virtual machine and launches AI agents with access to your projects
 - Enables mapping multiple projects in the same virtual machine simultaneously
 - Open multiple AI agents sessions and shell prompts, or use the GUI
+- Bundled `herdr` agent multiplexer for running many agents in a single session
 - Headless mode for CI/CD workflows with `--no-graphics`
 - Includes Xcode and common development tools; you can add your own tools too
 - Fast rebuild and relaunch using a three-layer APFS CoW caching system
@@ -54,6 +55,10 @@ Usage:
     clod gemini
     # also "clod g"
 
+    # Run herdr, the agent multiplexer (many agents in one VM)
+    clod herdr
+    # also "clod hd"
+
     # Or a command shell
     clod shell
     # also "clod s"
@@ -75,6 +80,33 @@ Usage:
     clod remove "FOURTH PROJECT DIRECTORY"      # also "clod rm ..."
     clod list                                   # also "clod l", "clod ls"
 
+
+## Running multiple agents with herdr
+
+Running several agents concurrently normally means several terminal windows,
+each with its own `clod claude`. [herdr](https://herdr.dev) is an agent-aware
+terminal multiplexer — tmux for coding agents — that collapses this into one
+session:
+
+    clod herdr
+
+From inside, split panes and launch `claude`, `codex`, or `gemini` in each.
+herdr's sidebar reports what every agent is doing (working, blocked, done,
+idle), so a blocked agent waiting on a prompt is visible instead of buried in
+a background window.
+
+Sessions persist in the VM. Detach with `prefix+q` and your agents keep
+running; `clod herdr` reattaches.
+
+Arguments after `--` pass through to herdr, so a second, independent session
+is just:
+
+    clod herdr . -- --session experiments
+
+herdr is installed in the base image, and its server runs as a background
+service. Integrations for Claude Code, Codex, and Cursor Agent are installed
+at instance creation so agent-state detection is authoritative rather than
+heuristic.
 
 ## Named VM instances
 

@@ -329,6 +329,11 @@ case "${1:-}" in
         PROJECT_DIR="${2:-}"
         PROJECT_NAME="${3:-}"
         ;;
+    herdr|hd)
+        COMMAND=herdr
+        PROJECT_DIR="${2:-}"
+        PROJECT_NAME="${3:-}"
+        ;;
     shell|sh|s)
         unset COMMAND
         IS_SHELL_COMMAND=true

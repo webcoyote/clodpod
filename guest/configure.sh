@@ -85,6 +85,26 @@ sudo chown -R "admin:staff" "$(brew --prefix)"
 
 
 ###############################################################################
+# Install herdr agent integrations
+#
+# Without an installed integration herdr detects agent state heuristically,
+# and the working/blocked/done sidebar — the reason to use it over tmux —
+# becomes guesswork. Only agents ClodPod preinstalls are wired here; gemini
+# has no herdr integration and falls back to heuristic detection.
+#
+# Failures warn but never abort: a missing integration costs sidebar accuracy,
+# not the instance.
+###############################################################################
+if command -v herdr >/dev/null 2>&1; then
+    debug "Installing herdr agent integrations..."
+    for integration in claude codex cursor; do
+        herdr integration install "$integration" >/dev/null 2>&1 \
+            || warn "herdr integration install $integration failed — continuing"
+    done
+fi
+
+
+###############################################################################
 # Apply project Brewfiles
 # Project mounts surface under /Volumes/My Shared Files/<name>. Each project
 # may ship a ./Brewfile; we reconcile it via 'brew bundle'. Failures warn

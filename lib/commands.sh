@@ -57,6 +57,7 @@ Commands:
   codex, co         Run OpenAI Codex in VM
   cursor, cu, ca    Run Cursor Agent in VM
   gemini, gem, g    Run Google Gemini in VM
+  herdr, hd         Run herdr agent multiplexer in VM
   shell, sh, s      Open shell in VM
   create, cr        Create a named VM instance
   destroy           Delete a named VM instance
@@ -312,6 +313,7 @@ dispatch_help() {
         codex|co)           show_help_command "codex [PATH] [NAME] [-- args...]" "Run OpenAI Codex in a VM." ;;
         cursor|cu|ca)       show_help_command "cursor [PATH] [NAME] [-- args...]" "Run Cursor Agent in a VM." ;;
         gemini|gem|g)       show_help_command "gemini [PATH] [NAME] [-- args...]" "Run Google Gemini in a VM." ;;
+        herdr|hd)           show_help_command "herdr [PATH] [NAME] [-- args...]" "Run the herdr agent multiplexer in a VM, hosting many agents in panes. Args pass through, e.g. '-- --session work'." ;;
         start)              show_help_start ;;
         add|a)              show_help_command "add PATH [NAME]" "Add a project directory. NAME defaults to directory basename." ;;
         remove|rm)          show_help_command "remove <name|path>" "Remove a project by name or path." ;;

@@ -26,6 +26,7 @@ Describe 'top-level help'
         The output should include "clone-base"
         The output should include "shell, sh, s"
         The output should include "help, h"
+        The output should include "herdr, hd"
     End
 
     It 'shows VM layers'
@@ -120,6 +121,16 @@ Describe 'dispatch_help'
     It 'dispatches simple commands'
         When call dispatch_help "claude"
         The output should include "Claude Code"
+    End
+
+    It 'dispatches herdr'
+        When call dispatch_help "herdr"
+        The output should include "herdr"
+    End
+
+    It 'dispatches hd alias'
+        When call dispatch_help "hd"
+        The output should include "herdr"
     End
 
     It 'dispatches cl alias'
