@@ -30,3 +30,7 @@ brew "wget"             # curl with different defaults
 # AI developer tools
 cask "claude-code"      # Anthropic Claude Code
 cask "codex"            # OpenAI Codex
+
+# Agent multiplexer. start_service runs 'herdr server', which owns the panes
+# and outlives any single shell — that persistence is the whole point.
+brew "herdr", start_service: true
