@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'echo >&2 "${BASH_SOURCE[0]}: line $LINENO: $BASH_COMMAND: exitcode $?"' ERR
-#SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ALLOW_SUDO="${ALLOW_SUDO:-false}"
 
@@ -62,54 +62,28 @@ else
     brew update && brew upgrade
 fi
 
-BrewApps=()
-BrewApps+=(bash)                # replace OSX bash 3.2 with something modern
-BrewApps+=(bat)                 # better cat
-BrewApps+=(coreutils)           # replace old BSD command-line tools with GNU
-BrewApps+=(eza)                 # better ls
-BrewApps+=(fd)                  # better than unix `find`
-BrewApps+=(findutils)           # includes gxargs with the '-r' option
-BrewApps+=(git)                 # yeah, it's the best
-BrewApps+=(git-delta)           # better pager for git diff
-BrewApps+=(git-lfs)             # big files
-BrewApps+=(gnu-getopt)          # because OSX getopt is ancient
-BrewApps+=(jq)                  # mangle JSON from the command line
-BrewApps+=(mas)                 # Apple Store command line
-BrewApps+=(node)                # NodeJS
-BrewApps+=(python)              # Python language
-BrewApps+=(rg)                  # better grep
-BrewApps+=(sd)                  # better sed
-BrewApps+=(shellcheck)          # lint for bash
-BrewApps+=(uv)                  # python package manager
-BrewApps+=(wget)                # curl with different defaults
+###############################################################################
+# Install base dependencies from the Brewfile
+#
+# guest/Brewfile is the single source of truth for what the base image ships —
+# formulae and AI agent casks alike. 'brew bundle' is idempotent: it reconciles
+# against installed state rather than failing on already-installed packages,
+# which is why this needs none of the '|| true' guards it replaces.
+###############################################################################
+BREWFILE="$SCRIPT_DIR/Brewfile"
+[[ -f "$BREWFILE" ]] || abort "Brewfile not found at $BREWFILE"
 
-debug "Installing ${BrewApps[*]}..."
+debug "Installing base dependencies from Brewfile..."
 if [[ "$VERBOSE" -lt 3 ]]; then
-    brew install --quiet "${BrewApps[@]}"
+    brew bundle install --quiet --file="$BREWFILE"
 else
-    brew install "${BrewApps[@]}"
+    brew bundle install --file="$BREWFILE"
 fi
 
 
 ###############################################################################
-# Install AI developer tools
+# Install AI developer tools not available via Homebrew
 ###############################################################################
-debug "Installing AI developer tools..."
-
-# Claude Code (brew cask)
-if [[ "$VERBOSE" -lt 3 ]]; then
-    brew install --quiet --cask claude-code 2>/dev/null || brew upgrade --quiet --cask claude-code 2>/dev/null || true
-else
-    brew install --cask claude-code 2>/dev/null || brew upgrade --cask claude-code 2>/dev/null || true
-fi
-
-# Codex (brew cask)
-if [[ "$VERBOSE" -lt 3 ]]; then
-    brew install --quiet --cask codex 2>/dev/null || brew upgrade --quiet --cask codex 2>/dev/null || true
-else
-    brew install --cask codex 2>/dev/null || brew upgrade --cask codex 2>/dev/null || true
-fi
-
 # Gemini CLI (npm global)
 if command -v npm &>/dev/null; then
     debug "Installing gemini-cli via npm..."
