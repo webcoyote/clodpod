@@ -1,5 +1,6 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154 # TEST_TMPDIR set by spec_helper.sh
+# shellcheck disable=SC2329 # stub functions are invoked indirectly by vm_shell
 
 Describe 'project isolation'
     Include lib/common.sh
@@ -93,6 +94,46 @@ Describe 'project isolation'
             sqlite3 "$DB_FILE" "UPDATE projects SET date_added = '2026-01-03 00:00:00' WHERE name = 'alpha';"
             When call check_projects_active
             The status should be failure
+        End
+    End
+
+    # Declining the restart prompt must not connect to a VM whose mounts are
+    # stale. Without isolation the older projects are still mounted, so
+    # reconnecting is merely incomplete; under isolation the active project is
+    # the only mount, so connecting would land the user in a VM without it.
+    Describe 'vm_shell declining the restart prompt'
+        shell_running_with_stale_mounts() {
+            get_vm_state() { echo "running"; }
+            get_vm_exists() { return 0; }
+            ensure_ssh_key() { :; }
+            vm_get_instance_vm_name() { echo "clodpod-xcode"; }
+            vm_get_instance_ram_mb() { echo 0; }
+            vm_get_ssh_user() { echo "admin"; }
+            stop_vm() { echo "stop_vm called"; }
+            vm_run() { echo "vm_run called"; }
+            ssh_into_vm() { echo "ssh_into_vm called"; }
+            # Decline the "restart it? (y/N)" prompt
+            vm_shell "xcode" </dev/null
+        }
+
+        It 'connects anyway when isolation is off'
+            # beta active, alpha not -> check_projects_active fails
+            sqlite3 "$DB_FILE" "UPDATE projects SET active = 1 WHERE name = 'beta';"
+            When run shell_running_with_stale_mounts
+            The status should be success
+            The output should include "ssh_into_vm called"
+            The output should not include "vm_run called"
+            The stderr should include "restart required"
+        End
+
+        It 'aborts instead of connecting when isolation is on'
+            set_setting "isolate_projects" "true"
+            # alpha active but beta is primary -> mounts are stale under isolation
+            sqlite3 "$DB_FILE" "UPDATE projects SET active = 1 WHERE name = 'alpha';"
+            When run shell_running_with_stale_mounts
+            The status should be failure
+            The output should not include "ssh_into_vm called"
+            The stderr should include "not mounted in the running VM"
         End
     End
 

@@ -250,7 +250,13 @@ vm_shell() {
             if [[ "$response" =~ ^[Yy]$ ]]; then
                 stop_vm "$vm_name"
                 vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
-                [[ "$instance_name" == "xcode" ]] && mark_projects_active
+                mark_projects_active
+            elif [[ "$(get_setting "isolate_projects" "false")" == "true" ]]; then
+                # Without isolation, declining just means a newly added project
+                # is missing; the previous mounts still work. Under isolation the
+                # active project is the *only* mount, so connecting anyway would
+                # drop the user into a VM without the project they asked for.
+                abort "Declined restart; $primary_name is not mounted in the running VM"
             fi
         fi
     else
