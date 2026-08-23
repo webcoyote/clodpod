@@ -241,21 +241,27 @@ vm_shell() {
             current_ram="$(tart get "$vm_name" --format json | jq '.Memory' 2>/dev/null || echo "?")"
             warn "$instance_name is already running with ${current_ram} MB RAM. --ram override ignored for running VM."
         fi
-        # xcode reads dirs from the projects table; new projects need a restart
-        # to be mounted. Mirrors the legacy `check_projects_active` UX.
+        # xcode reads dirs from the projects table; mount changes (new project,
+        # or a different active project under isolation) need a restart.
         if [[ "$instance_name" == "xcode" ]] && ! check_projects_active; then
-            warn "New project directory added; virtual machine restart required"
+            warn "Project mounts changed; virtual machine restart required"
             read -p "$vm_name is running; restart it? (y/N)" -n 1 -r response
             echo
             if [[ "$response" =~ ^[Yy]$ ]]; then
                 stop_vm "$vm_name"
                 vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
-                [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+                mark_projects_active
+            elif [[ "$(get_setting "isolate_projects" "false")" == "true" ]]; then
+                # Without isolation, declining just means a newly added project
+                # is missing; the previous mounts still work. Under isolation the
+                # active project is the *only* mount, so connecting anyway would
+                # drop the user into a VM without the project they asked for.
+                abort "Declined restart; $primary_name is not mounted in the running VM"
             fi
         fi
     else
         vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
-        [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+        [[ "$instance_name" == "xcode" ]] && mark_projects_active
     fi
 
     local ssh_user
@@ -333,7 +339,7 @@ vm_start_instance() {
 
     info "Starting instance $instance_name ($vm_name)"
     vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
-    [[ "$instance_name" == "xcode" ]] && sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+    [[ "$instance_name" == "xcode" ]] && mark_projects_active
 }
 
 # Auto-select target by name, by sole instance, or abort. Mirrors the policy
@@ -451,6 +457,7 @@ vm_set() {
     local ram_name=""
     local max_memory_value=""
     local vm_count_value=""
+    local isolation_value=""
     local dir_value=""
     local dir_name_target=""
     local dir_remove_value=""
@@ -472,6 +479,11 @@ vm_set() {
             --vm-count)
                 [[ $# -ge 2 ]] || abort "Usage: clod set --vm-count <N|default>"
                 vm_count_value="$2"
+                shift 2
+                ;;
+            --isolation)
+                [[ $# -ge 2 ]] || abort "Usage: clod set --isolation <on|off>"
+                isolation_value="$2"
                 shift 2
                 ;;
             --dir)
@@ -627,7 +639,29 @@ vm_set() {
         fi
     fi
 
-    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]] && [[ -z "$vm_count_value" ]] && [[ -z "$dir_value" ]] && [[ -z "$dir_remove_value" ]]; then
+    if [[ -n "$isolation_value" ]]; then
+        case "$isolation_value" in
+            on)
+                set_setting "isolate_projects" "true"
+                info "Project isolation enabled — the default 'xcode' VM mounts only the active project"
+                ;;
+            off)
+                sqlite3 "$DB_FILE" "DELETE FROM settings WHERE key = 'isolate_projects';"
+                info "Project isolation disabled — the default 'xcode' VM mounts all projects"
+                ;;
+            *)
+                abort "Invalid --isolation value '$isolation_value'. Use on or off."
+                ;;
+        esac
+
+        local vm_name
+        vm_name="$(vm_get_instance_vm_name "xcode")"
+        if [[ -n "$vm_name" ]] && [[ "$(get_vm_state "$vm_name")" == "running" ]]; then
+            warn "xcode is running — change takes effect on next launch"
+        fi
+    fi
+
+    if [[ -z "$ram_value" ]] && [[ -z "$max_memory_value" ]] && [[ -z "$vm_count_value" ]] && [[ -z "$isolation_value" ]] && [[ -z "$dir_value" ]] && [[ -z "$dir_remove_value" ]]; then
         abort "Usage: clod set [options] [NAME]. Run 'clod help set' for details."
     fi
 }
@@ -689,8 +723,8 @@ EOF
         abort "Failed to record xcode instance"
     fi
 
-    # Mark all projects as active after build
-    sqlite3 "$DB_FILE" "UPDATE projects SET active = 1;"
+    # Mark mounted projects as active after build
+    mark_projects_active
 
     info "Built xcode instance"
 }

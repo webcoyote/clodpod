@@ -215,6 +215,8 @@ Options:
   --ram SIZE            Set fixed RAM for an instance (e.g. 8G, 'default' to reset)
   --max-memory SIZE     Set workspace memory budget (e.g. 32G, 'default' for 5/8 host RAM)
   --vm-count N          Split budget across N VMs ('default' to reset to 1)
+  --isolation on|off    Mount only the active project in the default 'xcode' VM
+                        ('off' restores mounting all projects)
   --dir name:path       Add or replace a mount on an existing instance
   --dir-remove name     Remove a mount by name (primary mount cannot be removed)
 
@@ -222,6 +224,7 @@ Mount changes take effect on next VM launch.
 
 Examples:
   clod set --ram 10G dev
+  clod set --isolation on
   clod set --dir code:/Users/me/src dev
   clod set --dir code:/Users/me/src --ram 8G dev
   clod set --dir-remove code dev

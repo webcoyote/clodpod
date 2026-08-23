@@ -104,6 +104,22 @@ or worktree branches. Each is a cheap APFS CoW clone of the base VM.
     clod destroy myproject
     clod destroy --all
 
+## Project isolation
+
+By default the shared VM mounts every registered project, so agents can see
+all of them. Enable isolation to mount only the active project; other
+projects stay registered but are not visible inside the VM. Switching
+projects then requires a VM restart (you'll be prompted on next connect).
+
+    # Mount only the active project in the default VM
+    clod set --isolation on
+
+    # Restore mounting all projects
+    clod set --isolation off
+
+For full isolation including VM state, use named VM instances (above) —
+they only ever mount their own directories.
+
 ## Memory budget
 
 By default, VMs share a memory budget of 5/8 of host RAM. You can configure
