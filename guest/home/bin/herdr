@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Resolve the real binary by path, never via 'command -v': .zshrc puts
+# $HOME/bin ahead of Homebrew, so a PATH lookup finds this shim and recurses.
+APP=""
+for candidate in \
+    "${HOMEBREW_PREFIX:-/opt/homebrew}/bin/herdr" \
+    "$HOME/.local/bin/herdr" \
+; do
+    if [[ -x "$candidate" ]]; then
+        APP="$candidate"
+        break
+    fi
+done
+
+# The Brewfile installs herdr into the base image; this covers a VM built
+# before it was added, matching how the agent shims self-heal.
+if [[ -z "$APP" ]]; then
+    echo >&2 "Installing herdr..."
+    curl -fsSL https://herdr.dev/install.sh | sh
+    APP="$HOME/.local/bin/herdr"
+fi
+
+# No flags injected: herdr is a multiplexer, not an agent. Bare invocation
+# attaches the default session, and 'clod herdr -- --session NAME' or any
+# other subcommand passes straight through.
+exec "$APP" "$@"
