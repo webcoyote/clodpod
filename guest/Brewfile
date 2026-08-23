@@ -1,0 +1,32 @@
+# ClodPod base image dependencies.
+#
+# Applied by guest/install.sh during 'clod build-base'. This is layer 1 (the
+# base image), so changes here need a 'clod --rebuild-base' to take effect.
+#
+# Project-level dependencies belong in a project's own ./Brewfile instead —
+# those reconcile on every shell entry with no rebuild. See guest/home/README.md.
+
+# Command-line tools
+brew "bash"             # replace OSX bash 3.2 with something modern
+brew "bat"              # better cat
+brew "coreutils"        # replace old BSD command-line tools with GNU
+brew "eza"              # better ls
+brew "fd"               # better than unix `find`
+brew "findutils"        # includes gxargs with the '-r' option
+brew "git"              # yeah, it's the best
+brew "git-delta"        # better pager for git diff
+brew "git-lfs"          # big files
+brew "gnu-getopt"       # because OSX getopt is ancient
+brew "jq"               # mangle JSON from the command line
+brew "mas"              # Apple Store command line
+brew "node"             # NodeJS
+brew "python"           # Python language
+brew "rg"               # better grep (alias for ripgrep)
+brew "sd"               # better sed
+brew "shellcheck"       # lint for bash
+brew "uv"               # python package manager
+brew "wget"             # curl with different defaults
+
+# AI developer tools
+cask "claude-code"      # Anthropic Claude Code
+cask "codex"            # OpenAI Codex

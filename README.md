@@ -182,6 +182,14 @@ Optional virtual machine configuration (example):
 
 To add custom configuration; see `./guest/home/README.md`.
 
+### Base image dependencies (guest/Brewfile)
+
+Everything the base image ships — command-line tools and AI agent casks — is declared in [`guest/Brewfile`](guest/Brewfile), applied by `guest/install.sh` during `clod build-base`. To add a tool for every VM, add a line there and rebuild:
+
+    clod --rebuild-base
+
+Prefer a per-project Brewfile (below) when the dependency belongs to one project: those reconcile on every shell entry and need no rebuild.
+
 ### Per-project Homebrew dependencies (Brewfile)
 
 If a mounted project contains a [Brewfile](https://docs.brew.sh/Brew-Bundle-and-Brewfile) at its root, ClodPod will reconcile it via `brew bundle` automatically:
