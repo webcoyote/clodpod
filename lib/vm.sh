@@ -191,7 +191,7 @@ install_tools () {
     # Prompt for Tart license acceptance if not already installed
     if ! command -v tart &>/dev/null && [[ -z "${CLODPOD_ACCEPT_TART_LICENSE:-}" ]]; then
         info "Clodpod requires Tart (https://tart.run) for virtual machine management."
-        info "Tart is licensed under FSL-1.1-MIT. It is free for individuals and"
+        info "Tart is licensed under FSL-1.1-ALv2. It is free for individuals and"
         info "small organizations, but commercial use may require a paid license."
         info "See https://tart.run/licensing/ for details."
         info ""
@@ -202,9 +202,15 @@ install_tools () {
         [[ "$response" =~ ^[Yy]$ ]] || abort "Tart is required. Aborting."
     fi
 
+    # Tap and trust openai/tools so tart and its dependencies (e.g. softnet) install without error
+    if ! brew tap | grep -q '^openai/tools$' 2>/dev/null; then
+        brew tap openai/tools
+    fi
+    brew trust openai/tools 2>/dev/null || true
+
     debug "Installing tools..."
     local TOOLS=()
-    TOOLS+=("cirruslabs/cli/tart")      # macOS and Linux VMs on Apple Silicon
+    TOOLS+=("openai/tools/tart")        # macOS and Linux VMs on Apple Silicon
     TOOLS+=("jq")                       # JSON processing tool
     TOOLS+=("netcat")                   # test connectivity to guest VM
     TOOLS+=("rush")                     # Restricted User SHell
