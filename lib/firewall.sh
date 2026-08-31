@@ -1,0 +1,252 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2154 # globals set by config.sh and other modules
+# Host-side domain firewall: tinyproxy + softnet network isolation.
+#
+# Architecture:
+#   HOST: tinyproxy (forward proxy, domain allowlist via Filter + FilterDefaultDeny)
+#   HOST: softnet (Tart hypervisor) — VM can only reach gateway IP
+#   VM:   HTTPS_PROXY → gateway:port — all traffic routes through proxy
+#
+# Tinyproxy sees CONNECT hostname:443, checks domain against the filter.
+# Softnet blocks any direct connection that bypasses the proxy.
+# Both layers are host-side — guest sudo can't touch either.
+
+FIREWALL_PORT="${FIREWALL_PORT:-3128}"
+FIREWALL_DIR="/tmp/clodpod-firewall"
+FIREWALL_CONF="$FIREWALL_DIR/tinyproxy.conf"
+FIREWALL_LOG="$FIREWALL_DIR/tinyproxy.log"
+
+# Softnet gateway is always 192.168.2.1 (Apple Virtualization.framework).
+# Used for --net-softnet-allow before VM boots.
+FIREWALL_SOFTNET_GATEWAY="192.168.2.1"
+
+_FIREWALL_PID=""
+
+firewall_ensure_proxy() {
+    if command -v tinyproxy &>/dev/null; then
+        return 0
+    fi
+
+    debug "Installing tinyproxy (required for --firewall)..."
+    if [[ "$VERBOSE" -lt 3 ]]; then
+        brew install --quiet tinyproxy
+    else
+        brew install tinyproxy
+    fi
+
+    command -v tinyproxy &>/dev/null || abort "Firewall: tinyproxy install failed"
+}
+
+# Softnet requires its binary to be SUID root. On first run it prompts for a
+# sudo password to set the SUID bit, but tart run is invoked with stdin
+# redirected from /dev/null (vm.sh), so the prompt receives EOF and tart
+# hangs until our wait_vm_running 20s timeout fires. Catch this up front
+# with a clearer error.
+firewall_ensure_softnet_suid() {
+    local softnet_bin
+    softnet_bin="$(command -v softnet 2>/dev/null)"
+    [[ -n "$softnet_bin" ]] || abort "Firewall: softnet binary not found (expected via tart's brew formula)"
+
+    # BSD stat (always present at /usr/bin/stat on macOS) — GNU coreutils may
+    # shadow `stat` in PATH and interprets -f differently. %Mp = upper-octal
+    # mode bits (file type + setuid/setgid/sticky); the 4 bit is setuid.
+    local mode
+    mode="$(/usr/bin/stat -L -f '%Mp' "$softnet_bin" 2>/dev/null)" || abort "Firewall: cannot stat $softnet_bin"
+    if (( (mode & 4) == 0 )); then
+        abort "Firewall: $softnet_bin is not SUID. Run \`sudo chmod u+s $softnet_bin\` (or run \`tart run --net-softnet ...\` once interactively so softnet prompts for the password) then retry."
+    fi
+}
+
+# Convert domain allowlist to tinyproxy filter regex.
+# Input:  one domain per line, leading dot = match subdomains.
+# Output: regex per line for tinyproxy's Filter file.
+_domains_to_filter() {
+    local domains_file="$1"
+    local filter_file="$2"
+
+    while IFS= read -r domain; do
+        # Strip whitespace
+        domain="${domain#"${domain%%[![:space:]]*}"}"
+        domain="${domain%"${domain##*[![:space:]]}"}"
+        [[ -n "$domain" ]] || continue
+
+        # Escape dots for regex
+        local escaped="${domain//./\\.}"
+
+        if [[ "$domain" == .* ]]; then
+            # Leading dot: match domain and all subdomains
+            # .github.com → (^|\.)github\.com$
+            local bare="${escaped#\\.}"
+            echo "(^|\\.)${bare}$"
+        else
+            # Exact domain match
+            echo "^${escaped}$"
+        fi
+    done < "$domains_file" > "$filter_file"
+}
+
+firewall_start() {
+    local domains_input="${1:-}"
+
+    # Validate domains input early — fail fast on bad input even if a proxy
+    # is already running on the port (caller made an error we shouldn't hide).
+    mkdir -p "$FIREWALL_DIR"
+
+    # Resolve domain list — use built-in defaults if none specified
+    local domains_file
+    if [[ -z "$domains_input" ]] || [[ "$domains_input" == "__default__" ]]; then
+        domains_file="$FIREWALL_DIR/domains.txt"
+        cat > "$domains_file" <<'DEFAULT_DOMAINS'
+.github.com
+.anthropic.com
+DEFAULT_DOMAINS
+    else
+        # resolve_physical_path returns nonzero when the path doesn't exist;
+        # || true lets the not-found check below produce the user-facing error.
+        domains_file="$(resolve_physical_path "$domains_input" 2>/dev/null || true)"
+        if [[ ! -f "$domains_file" ]]; then
+            abort "Firewall domains file not found: $domains_input"
+        fi
+    fi
+
+    # Strip comments and blank lines. Use [[:space:]] not \s — \s is a GNU
+    # grep extension and matches the literal two-char string on classic BSD
+    # grep, which would leak comment/blank lines into the filter.
+    local clean_domains="$FIREWALL_DIR/domains-clean.txt"
+    grep -v '^[[:space:]]*#' "$domains_file" | grep -v '^[[:space:]]*$' > "$clean_domains"
+
+    if [[ ! -s "$clean_domains" ]]; then
+        abort "Firewall domains file is empty (after stripping comments): $domains_input"
+    fi
+
+    firewall_ensure_proxy
+    firewall_ensure_softnet_suid
+
+    # Port already taken by another process (e.g. a sibling devcontainer/docker
+    # script also pointing at this port to share one upstream tinyproxy)?
+    # Reuse it rather than failing — both sides are expected to use the same
+    # allowlist file, so the filter set is identical. _FIREWALL_PID stays
+    # empty so firewall_stop won't try to kill someone else's process.
+    if nc -z 127.0.0.1 "$FIREWALL_PORT" 2>/dev/null; then
+        info "Firewall: reusing existing proxy on :${FIREWALL_PORT}"
+        return 0
+    fi
+
+    # Convert to tinyproxy filter regex
+    local filter_file="$FIREWALL_DIR/filter.txt"
+    _domains_to_filter "$clean_domains" "$filter_file"
+
+    # Generate tinyproxy config
+    cat > "$FIREWALL_CONF" <<TINYPROXY_CONF
+# Auto-generated by ClodPod firewall
+Port ${FIREWALL_PORT}
+# Bind 0.0.0.0 because the softnet gateway IP (192.168.2.1) doesn't exist on
+# the host until tart starts the VM with --net-softnet-*, which happens AFTER
+# firewall_start. Binding a specific not-yet-existent IP fails with "Could
+# not create listening sockets". Access control is enforced via the Allow
+# lines below — without them, default policy is allow-all (open proxy on
+# the LAN). With them, default flips to deny, so only loopback and the
+# bridge subnet can use the proxy regardless of what 0.0.0.0 listens on.
+Listen 0.0.0.0
+Allow 127.0.0.1
+Allow 192.168.2.0/24
+Timeout 600
+LogFile "${FIREWALL_LOG}"
+LogLevel Connect
+MaxClients 200
+ConnectPort 443
+# Port 22 lets the VM tunnel SSH to allowlisted hosts (e.g. github.com:22)
+# through the same proxy as HTTPS. Filter still applies — only domains in
+# the allowlist accept CONNECT, regardless of port.
+ConnectPort 22
+Filter "${filter_file}"
+FilterDefaultDeny Yes
+FilterType ere
+# DNS names are case-insensitive (RFC 4343). Without this, a CONNECT to
+# GITHUB.COM:443 bypasses an allowlist entry of github.com.
+FilterCaseSensitive No
+TINYPROXY_CONF
+
+    # Run in foreground as background job
+    tinyproxy -d -c "$FIREWALL_CONF" &
+    _FIREWALL_PID=$!
+
+    # Wait for port to open
+    local attempts=0
+    while ! nc -z 127.0.0.1 "$FIREWALL_PORT" 2>/dev/null; do
+        if ! kill -0 "$_FIREWALL_PID" 2>/dev/null; then
+            _FIREWALL_PID=""
+            abort "Firewall: tinyproxy exited unexpectedly — check $FIREWALL_LOG"
+        fi
+        attempts=$((attempts + 1))
+        if [[ $attempts -ge 20 ]]; then
+            kill "$_FIREWALL_PID" 2>/dev/null || true
+            _FIREWALL_PID=""
+            abort "Firewall: tinyproxy failed to start (port $FIREWALL_PORT not open after 10s) — check $FIREWALL_LOG"
+        fi
+        sleep 0.5
+    done
+
+    info "Firewall: proxy listening on :${FIREWALL_PORT} (pid $_FIREWALL_PID, $(wc -l < "$filter_file" | tr -d ' ') domains)"
+}
+
+firewall_stop() {
+    # If _FIREWALL_PID is empty we reused a sibling clod's tinyproxy via the
+    # port-in-use path in firewall_start. That sibling still owns the config,
+    # filter, and log under FIREWALL_DIR — wiping the dir would yank its
+    # filter file out from under it. Leave both the process and the dir alone.
+    if [[ -z "${_FIREWALL_PID:-}" ]]; then
+        return 0
+    fi
+    if kill -0 "$_FIREWALL_PID" 2>/dev/null; then
+        kill "$_FIREWALL_PID" 2>/dev/null || true
+        wait "$_FIREWALL_PID" 2>/dev/null || true
+        info "Firewall: proxy stopped"
+    fi
+    _FIREWALL_PID=""
+    rm -rf "$FIREWALL_DIR" 2>/dev/null || true
+}
+
+# Detect the host-side gateway IP from bridge100 (available after VM boots).
+# Falls back to the softnet constant if bridge100 isn't up yet.
+firewall_detect_gateway() {
+    local ip
+    # exit after first match: a bridge with multiple inet addresses (aliases,
+    # post-recycle state) would otherwise produce a newline-separated list
+    # that turns firewall_proxy_url's output into a malformed URL.
+    ip="$(ifconfig bridge100 2>/dev/null | awk '/inet /{print $2; exit}')"
+    if [[ -n "$ip" ]]; then
+        echo "$ip"
+    else
+        echo "$FIREWALL_SOFTNET_GATEWAY"
+    fi
+}
+
+firewall_proxy_url() {
+    local gw
+    gw="$(firewall_detect_gateway)"
+    echo "http://${gw}:${FIREWALL_PORT}"
+}
+
+# Softnet flags for tart run — block all, allow only gateway.
+# --net-softnet enables softnet isolation (without it, --net-softnet-block /
+# --net-softnet-allow are rejected by tart and the VM fails to start).
+# Uses the fixed softnet gateway since bridge100 doesn't exist until tart starts.
+firewall_softnet_args() {
+    echo "--net-softnet"
+    echo "--net-softnet-block=0.0.0.0/0"
+    echo "--net-softnet-allow=${FIREWALL_SOFTNET_GATEWAY}/32"
+}
+
+# Is the running tart process for $vm_name already using softnet isolation?
+# Used to make `clod s --firewall` re-entrant: if a prior --firewall session
+# left the VM running, we can safely reconnect rather than forcing a restart.
+# Without softnet, the proxy env vars alone are a false sense of security
+# (guest can route around them), so a restart is still required in that case.
+firewall_vm_using_softnet() {
+    local vm_name="$1"
+    # BSD pgrep -fl: -f matches full cmdline, -l prints it. Anchor on the
+    # trailing vm_name (last positional arg to `tart run`) to avoid matching
+    # an unrelated VM whose name is a prefix of this one.
+    pgrep -fl "tart run .* ${vm_name}\$" 2>/dev/null | grep -q -- '--net-softnet'
+}
