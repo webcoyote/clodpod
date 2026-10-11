@@ -15,11 +15,12 @@ Describe 'herdr integration'
             The status should be success
         End
 
-        # herdr runs a background server that owns the panes. Without
-        # start_service the daemon dies with the shell that spawned it.
-        It 'starts the herdr server as a service'
-            When call grep -qE '^[[:space:]]*brew "herdr".*start_service:[[:space:]]*true' "$BREWFILE"
-            The status should be success
+        # The herdr formula dropped its service block (Homebrew/homebrew-core#310924),
+        # so start_service makes 'brew bundle' fail and aborts build-base.
+        # herdr starts its own server when run.
+        It 'does not request a brew service for herdr'
+            When call grep -qE '^[[:space:]]*brew "herdr".*start_service' "$BREWFILE"
+            The status should be failure
         End
     End
 
