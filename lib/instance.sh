@@ -339,7 +339,9 @@ vm_start_instance() {
 
     info "Starting instance $instance_name ($vm_name)"
     vm_run "$vm_name" "$effective_ram" "$vm_name" ${dir_args[@]+"${dir_args[@]}"} || true
-    [[ "$instance_name" == "xcode" ]] && mark_projects_active
+    if [[ "$instance_name" == "xcode" ]]; then
+        mark_projects_active
+    fi
 }
 
 # Auto-select target by name, by sole instance, or abort. Mirrors the policy
