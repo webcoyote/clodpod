@@ -27,3 +27,4 @@ Special thanks to all who have provided feedback, bug reports, and suggestions f
 - [tallpsmith](https://github.com/tallpsmith)
 - [Taytay](https://github.com/Taytay)
 - [vre](https://github.com/vre)
+- [maximehinnekens](https://github.com/maximehinnekens)
