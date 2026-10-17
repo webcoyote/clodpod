@@ -21,7 +21,7 @@ fi
 ###############################################################################
 # Overrides
 ###############################################################################
-MACOS_VERSION="${MACOS_VERSION:-tahoe}"
+MACOS_VERSION="${MACOS_VERSION:-golden-gate}"
 MACOS_FLAVOR="${MACOS_FLAVOR:-xcode}"
 
 

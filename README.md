@@ -191,7 +191,7 @@ Both methods can be combined.
 
 ## macOS versions
 
-By default ClodPod uses the `ghcr.io/cirruslabs/macos-tahoe-xcode:latest` VM flavor, but this is configurable by setting the MACOS_VERSION and MACOS_FLAVOR environment variables when building the VM:
+By default ClodPod uses the `ghcr.io/cirruslabs/macos-golden-gate-xcode:latest` VM flavor, but this is configurable by setting the MACOS_VERSION and MACOS_FLAVOR environment variables when building the VM:
 
     MACOS_VERSION=sequoia MACOS_FLAVOR=vanilla clod shell
 
