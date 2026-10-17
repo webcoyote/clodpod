@@ -123,8 +123,14 @@ if [[ -n "${COMMAND_ARGS_B64:-}" ]]; then
 fi
 
 if [[ "${COMMAND:-}" != "" ]]; then
-    exec "$COMMAND" "${command_args[@]}"
+    # herdr believes any mentionn of itself in environment means it is running (stupid)
+    # so we unset the command Args before launching so that it doesn't
+    # complain
+    # we reset the environment after launch
+    CLOD_COMMAND="${COMMAND}"
+    unset COMMAND
+    exec "$CLOD_COMMAND" "${command_args[@]}"
+    COMMAND=$CLOD_COMMAND
 elif [[ ${#command_args[@]} -gt 0 ]]; then
     exec "${command_args[@]}"
 fi
-
