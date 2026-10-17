@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Configuration: validation, version, names, paths
 
-VALID_MACOS_VERSIONS="tahoe sequoia sonoma ventura monterey"
+VALID_MACOS_VERSIONS="golden-gate tahoe sequoia sonoma ventura monterey"
 VALID_MACOS_FLAVORS="vanilla base xcode"
 
 is_valid_version() {
