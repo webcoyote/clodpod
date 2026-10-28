@@ -98,6 +98,9 @@ sudo chown -R "admin:staff" "$(brew --prefix)"
 if command -v herdr >/dev/null 2>&1; then
     debug "Installing herdr agent integrations..."
     for integration in claude codex cursor; do
+        # herdr refuses to install until the agent's config dir exists, and
+        # the agents only create it on first run
+        mkdir -p "$HOME/.$integration"
         herdr integration install "$integration" >/dev/null 2>&1 \
             || warn "herdr integration install $integration failed — continuing"
     done
